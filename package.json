@@ -1,0 +1,38 @@
+{
+  "name": "agent-spend",
+  "version": "0.1.0",
+  "description": "Spend visibility dashboard for AI agents on Tempo",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "devnet": "tsx scripts/devnet.ts",
+    "demo": "tsx scripts/demo-agent.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Messiah0x/agent-spend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Messiah0x/agent-spend/issues"
+  },
+  "homepage": "https://github.com/Messiah0x/agent-spend#readme",
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "better-sqlite3": "^13.0.3",
+    "hono": "^4.13.2",
+    "viem": "^2.55.16"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "type": "module"
+}
