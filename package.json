@@ -8,6 +8,7 @@
     "start": "tsx src/index.ts",
     "devnet": "tsx scripts/devnet.ts",
     "demo": "tsx scripts/demo-agent.ts",
+    "live-agent": "tsx scripts/live-agent.ts",
     "typecheck": "tsc --noEmit"
   },
   "repository": {

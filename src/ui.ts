@@ -166,6 +166,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .amount .sym { font-weight: 450; color: var(--text-muted); font-size: 12px; margin-left: 3px; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 .muted { color: var(--text-muted); }
+.budget-error { color: var(--critical); }
 .secondary { color: var(--text-secondary); }
 .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
