@@ -104,16 +104,26 @@ async function main() {
   }
 
   // 2. Authorize the agent access key: 500 pathUSD per 30 days.
+  //    Idempotent: a re-run against an already-authorized key hits
+  //    KeyAlreadyExists on-chain — that's success, not failure.
   console.log("2. authorizing agent access key (500 pathUSD / 30 days)…");
-  const auth = await rootClient.accessKey.authorizeSync({
-    accessKey: agentAccessKey,
-    limits: [{ token: PATH_USD_ADDRESS, limit: 500n * USD, period: 30 * 24 * 3600 }],
-  });
-  console.log(`   authorized in tx ${auth.receipt.transactionHash}`);
+  try {
+    const auth = await rootClient.accessKey.authorizeSync({
+      accessKey: agentAccessKey,
+      limits: [{ token: PATH_USD_ADDRESS, limit: 500n * USD, period: 30 * 24 * 3600 }],
+    });
+    console.log(`   authorized in tx ${auth.receipt.transactionHash}`);
+  } catch (err) {
+    if (String(err).includes("KeyAlreadyExists")) {
+      console.log("   already authorized on-chain, skipping");
+    } else {
+      throw err;
+    }
+  }
 
   // 3. Agent makes real memo-tagged payments via the access key.
   const payments = [
-    { to: "0x00000000000000000000000000000000000A9E27" as Address, amount: 12_500_000n, reason: "LLM inference credits, batch #4821" },
+    { to: "0x00000000000000000000000000000000000a9e27" as Address, amount: 12_500_000n, reason: "LLM inference credits, batch #4821" },
     { to: "0x00000000000000000000000000000000000da7a2" as Address, amount: 4_990_000n, reason: "Market data snapshot 2026-08-28" },
   ];
   for (const p of payments) {

@@ -32,18 +32,32 @@ Success means:
 5. Index the live transaction.
 6. Show it correctly in the dashboard with remaining budget.
 
-Status: everything is prepared; execution is blocked only on network access.
+**Status: validated live on Moderato, 2026-08-28.** Run locally (a prior
+remote environment was network-blocked from `rpc.moderato.tempo.xyz`; this
+run was done from a local machine instead). `npm run live-agent` funded a
+fresh testnet-only account from the faucet, authorized a scoped agent access
+key (500 pathUSD / 30 days), and made two real memo-tagged payments. The
+dashboard, run against the same RPC, indexed both automatically and showed
+the agent, amounts, recipients, memo commitments, transactions, and live
+remaining budget (482.50 pathUSD), matching the on-chain read. See CHANGELOG.md.
+
 - `npm run live-agent` (`scripts/live-agent.ts`) drives the full flow against
   Moderato with real transactions: faucet funding via `tempo_fundAddress`
   (the official faucet mints pathUSD, which also pays fees — Tempo has no
   native gas token), access-key authorization with a 500 pathUSD / 30-day
   limit, and memo-tagged payments signed by the access key (viem ≥2.55 ships
   native Tempo support in `viem/tempo`).
-- Testnet-only keys live in `.local/` (gitignored). Watched root account:
-  `0xDaAF9558c0C3BbBFf9cfA07A1a66430C33683F29`.
-- Blocker: the remote dev environment's egress policy denies
-  `rpc.moderato.tempo.xyz`; the founder needs to allow that domain (or run
-  the two commands locally).
+- Testnet-only keys live in `.local/` (gitignored, never committed). Watched
+  root account this run: `0xc316BAb556742A2147341C8001Ea03Bbb2cDcdC9`.
+- On Windows, `better-sqlite3` needs a native build; installing Visual Studio
+  Build Tools (Desktop development with C++ workload) is required regardless
+  of Node version.
+- Fixed two bugs found during this run: an invalid checksummed placeholder
+  recipient address in `live-agent.ts`, and non-idempotent access-key
+  authorization (re-running against an already-authorized key now skips
+  instead of failing on `KeyAlreadyExists`).
+- The indexer's stored cursor takes precedence over `START_BLOCK` on restart
+  — clear `data/*.db` if you need to change `START_BLOCK` on an existing DB.
 
 ## Known follow-ups
 - Improve mobile table overflow after live validation.
