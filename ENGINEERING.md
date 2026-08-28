@@ -32,8 +32,20 @@ Success means:
 5. Index the live transaction.
 6. Show it correctly in the dashboard with remaining budget.
 
+Status: everything is prepared; execution is blocked only on network access.
+- `npm run live-agent` (`scripts/live-agent.ts`) drives the full flow against
+  Moderato with real transactions: faucet funding via `tempo_fundAddress`
+  (the official faucet mints pathUSD, which also pays fees — Tempo has no
+  native gas token), access-key authorization with a 500 pathUSD / 30-day
+  limit, and memo-tagged payments signed by the access key (viem ≥2.55 ships
+  native Tempo support in `viem/tempo`).
+- Testnet-only keys live in `.local/` (gitignored). Watched root account:
+  `0xDaAF9558c0C3BbBFf9cfA07A1a66430C33683F29`.
+- Blocker: the remote dev environment's egress policy denies
+  `rpc.moderato.tempo.xyz`; the founder needs to allow that domain (or run
+  the two commands locally).
+
 ## Known follow-ups
-- Do not silently treat RPC/read failures as missing budgets; surface an unavailable/error state.
 - Improve mobile table overflow after live validation.
 - Review event association for transactions containing multiple relevant events.
 - Consider deeper reorg handling later.

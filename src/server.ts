@@ -48,7 +48,7 @@ export function createServer(config: Config, db: Db, reader: Reader) {
       keys.map((k) =>
         keyStatus(k) === "active"
           ? reader.remainingBudgets(k.account as Address, k.key_id as Address)
-          : Promise.resolve([]),
+          : Promise.resolve({ budgets: [], unavailable: false }),
       ),
     );
 
@@ -73,17 +73,19 @@ export function createServer(config: Config, db: Db, reader: Reader) {
         const budgetHtml =
           status !== "active"
             ? `<span class="muted">—</span>`
-            : budgets[i]!.length
-              ? budgets[i]!
-                  .map((b) => {
-                    const resets =
-                      b.periodEnd > 0
-                        ? `<div class="sub">resets ${escapeHtml(formatTime(b.periodEnd))}</div>`
-                        : "";
-                    return `${amountHtml(b.remaining, b.token)}${resets}`;
-                  })
-                  .join("<br>")
-              : `<span class="muted">no limit set</span>`;
+            : budgets[i]!.unavailable
+              ? `<span class="budget-error" title="Could not read remaining budget from the chain. Check the RPC connection.">unavailable</span>`
+              : budgets[i]!.budgets.length
+                ? budgets[i]!.budgets
+                    .map((b) => {
+                      const resets =
+                        b.periodEnd > 0
+                          ? `<div class="sub">resets ${escapeHtml(formatTime(b.periodEnd))}</div>`
+                          : "";
+                      return `${amountHtml(b.remaining, b.token)}${resets}`;
+                    })
+                    .join("<br>")
+                : `<span class="muted">no limit set</span>`;
 
         const last = lastSpends.get(`${k.account}|${k.key_id}`);
         return `<tr>

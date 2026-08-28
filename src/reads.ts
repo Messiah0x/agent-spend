@@ -1,7 +1,15 @@
 // Live chain reads for the dashboard. Budgets are never cached: the
 // AccountKeychain precompile is the source of truth for remaining limits.
 
-import { createPublicClient, http, type Address, type PublicClient } from "viem";
+import {
+  createPublicClient,
+  http,
+  BaseError,
+  ContractFunctionRevertedError,
+  ContractFunctionZeroDataError,
+  type Address,
+  type PublicClient,
+} from "viem";
 import { ACCOUNT_KEYCHAIN_ADDRESS, keychainReadsAbi } from "./chain.js";
 import type { Config } from "./config.js";
 
@@ -13,12 +21,35 @@ export interface RemainingBudget {
   periodEnd: number;
 }
 
+export interface BudgetsResult {
+  budgets: RemainingBudget[];
+  /**
+   * True when any read failed at the RPC/transport level, so `budgets` may be
+   * incomplete. A contract-level revert/empty return (no limit configured) is
+   * not a failure and never sets this.
+   */
+  unavailable: boolean;
+}
+
+/** Revert or empty return data: the chain answered, there is just no limit. */
+function isContractLevel(err: unknown): boolean {
+  return (
+    err instanceof BaseError &&
+    err.walk(
+      (e) =>
+        e instanceof ContractFunctionRevertedError ||
+        e instanceof ContractFunctionZeroDataError,
+    ) !== null
+  );
+}
+
 export function createReader(config: Config) {
   const client: PublicClient = createPublicClient({ transport: http(config.rpcUrl) });
 
   return {
     /** Remaining budget for one agent key across all configured tokens. */
-    async remainingBudgets(account: Address, keyId: Address): Promise<RemainingBudget[]> {
+    async remainingBudgets(account: Address, keyId: Address): Promise<BudgetsResult> {
+      let unavailable = false;
       const results = await Promise.all(
         config.tokens.map(async (token) => {
           try {
@@ -34,12 +65,13 @@ export function createReader(config: Config) {
               remaining,
               periodEnd: Number(periodEnd),
             };
-          } catch {
+          } catch (err) {
+            if (!isContractLevel(err)) unavailable = true;
             return null;
           }
         }),
       );
-      return results.filter((r): r is RemainingBudget => r !== null);
+      return { budgets: results.filter((r): r is RemainingBudget => r !== null), unavailable };
     },
   };
 }
