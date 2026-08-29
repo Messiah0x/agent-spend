@@ -26,6 +26,25 @@ function txCell(txHash: string, explorerUrl?: string): string {
   return `<a class="txlink" href="${escapeHtml(href)}" target="_blank" rel="noopener">${label}</a>`;
 }
 
+/**
+ * Agent identity cell: the human-readable name if one has been set (address
+ * demoted to a secondary line), otherwise the address alone — unchanged from
+ * before this feature existed.
+ */
+function agentCell(labels: Map<string, string>, account: string, keyId: string): string {
+  const name = labels.get(`${account}|${keyId}`);
+  const addr = `<span class="mono">${escapeHtml(shortAddress(keyId))}</span>`;
+  return name ? `<span class="agent-name">${escapeHtml(name)}</span><div class="sub">${addr}</div>` : addr;
+}
+
+/** Inline name/rename form shown only on the Overview page. */
+function agentLabelForm(account: string, keyId: string, current: string | undefined): string {
+  return `<form method="post" action="/agents/${account}/${keyId}/label" class="label-form">
+    <input type="text" name="label" value="${escapeHtml(current ?? "")}" placeholder="Name this agent" maxlength="64" aria-label="Agent name">
+    <button type="submit">${current ? "Rename" : "Save"}</button>
+  </form>`;
+}
+
 export function createServer(config: Config, db: Db, reader: Reader) {
   const app = new Hono();
   const network =
@@ -43,6 +62,7 @@ export function createServer(config: Config, db: Db, reader: Reader) {
     const keys = db.listKeys();
     const totals = db.spendTotals();
     const lastSpends = db.lastSpendTimes();
+    const labels = db.listLabels();
 
     const budgets = await Promise.all(
       keys.map((k) =>
@@ -90,8 +110,9 @@ export function createServer(config: Config, db: Db, reader: Reader) {
         const last = lastSpends.get(`${k.account}|${k.key_id}`);
         return `<tr>
           <td>
-            <span class="mono">${escapeHtml(shortAddress(k.key_id))}</span>
+            ${agentCell(labels, k.account, k.key_id)}
             <div class="sub">account ${escapeHtml(shortAddress(k.account))}</div>
+            ${agentLabelForm(k.account, k.key_id, labels.get(`${k.account}|${k.key_id}`))}
           </td>
           <td>${statusBadge(status)}</td>
           <td class="num">${budgetHtml}</td>
@@ -104,7 +125,7 @@ export function createServer(config: Config, db: Db, reader: Reader) {
     const table = keys.length
       ? `<div class="table-wrap"><table>
           <thead><tr>
-            <th>Agent key</th><th>Status</th><th class="num">Remaining budget</th><th class="num">Total spent</th><th>Last active</th>
+            <th>Agent</th><th>Status</th><th class="num">Remaining budget</th><th class="num">Total spent</th><th>Last active</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`
@@ -131,12 +152,13 @@ export function createServer(config: Config, db: Db, reader: Reader) {
   // ── Activity ──────────────────────────────────────────────────────────────
   app.get("/activity", (c) => {
     const payments: PaymentRow[] = db.listPayments(200);
+    const labels = db.listLabels();
     const rows = payments
       .map((p) => {
         const memo = shortMemo(p.memo);
         return `<tr>
           <td><span class="secondary">${escapeHtml(formatTime(p.block_time))}</span></td>
-          <td><span class="mono">${escapeHtml(shortAddress(p.key_id))}</span></td>
+          <td>${agentCell(labels, p.account, p.key_id)}</td>
           <td class="num">${amountHtml(p.amount, p.token, "−")}</td>
           <td>${p.to_addr ? `<span class="mono">${escapeHtml(shortAddress(p.to_addr))}</span>` : `<span class="muted">—</span>`}</td>
           <td>${memo ? `<span class="chip" title="${escapeHtml(p.memo!)}">${escapeHtml(memo)}</span>` : `<span class="muted">—</span>`}</td>
@@ -149,7 +171,7 @@ export function createServer(config: Config, db: Db, reader: Reader) {
     const table = payments.length
       ? `<div class="table-wrap"><table>
           <thead><tr>
-            <th>Time</th><th>Agent key</th><th class="num">Amount</th><th>Recipient</th><th>Memo</th><th class="num">Remaining after</th><th>Transaction</th>
+            <th>Time</th><th>Agent</th><th class="num">Amount</th><th>Recipient</th><th>Memo</th><th class="num">Remaining after</th><th>Transaction</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`
@@ -168,6 +190,7 @@ export function createServer(config: Config, db: Db, reader: Reader) {
   // ── Keys ──────────────────────────────────────────────────────────────────
   app.get("/keys", (c) => {
     const events: KeyEventRow[] = db.keyEvents(200);
+    const labels = db.listLabels();
     const describe = (e: KeyEventRow) => {
       switch (e.kind) {
         case "authorized":
@@ -183,7 +206,7 @@ export function createServer(config: Config, db: Db, reader: Reader) {
         (e) => `<tr>
           <td><span class="secondary">${escapeHtml(formatTime(e.block_time))}</span></td>
           <td>${escapeHtml(describe(e))}</td>
-          <td><span class="mono">${escapeHtml(shortAddress(e.key_id))}</span></td>
+          <td>${agentCell(labels, e.account, e.key_id)}</td>
           <td><span class="mono muted">${escapeHtml(shortAddress(e.account))}</span></td>
           <td>${e.tx_hash ? txCell(e.tx_hash, config.explorerUrl) : ""}</td>
         </tr>`,
@@ -193,7 +216,7 @@ export function createServer(config: Config, db: Db, reader: Reader) {
     const table = events.length
       ? `<div class="table-wrap"><table>
           <thead><tr>
-            <th>Time</th><th>Event</th><th>Agent key</th><th>Account</th><th>Transaction</th>
+            <th>Time</th><th>Event</th><th>Agent</th><th>Account</th><th>Transaction</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`
@@ -207,6 +230,16 @@ export function createServer(config: Config, db: Db, reader: Reader) {
         ${table}
       </div>`;
     return c.html(layout("Keys", nav("keys"), body));
+  });
+
+  // ── Agent identity ───────────────────────────────────────────────────────
+  // Local to Agent Spend only: never touches Tempo or on-chain enforcement.
+  app.post("/agents/:account/:keyId/label", async (c) => {
+    const { account, keyId } = c.req.param();
+    const body = await c.req.parseBody();
+    const label = typeof body.label === "string" ? body.label : "";
+    db.setLabel(account, keyId, label);
+    return c.redirect("/");
   });
 
   app.get("/healthz", (c) => {

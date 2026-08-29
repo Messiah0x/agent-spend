@@ -123,6 +123,64 @@ describe("milestone: agent payment appears on the dashboard", () => {
     expect(html).toContain("0x2222…2222");
   });
 
+  it("agent identity: unnamed agents render as before, by address only", async () => {
+    for (const path of ["/", "/activity", "/keys"]) {
+      const html = await (await app.request(path)).text();
+      expect(html).toContain("0x2222…2222");
+      expect(html).not.toContain('<span class="agent-name">');
+    }
+  });
+
+  it("agent identity: naming an agent from Overview shows the name everywhere, address still visible", async () => {
+    const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `label=${encodeURIComponent("Research Agent")}`,
+    });
+    expect(res.status).toBe(302);
+
+    for (const path of ["/", "/activity", "/keys"]) {
+      const html = await (await app.request(path)).text();
+      expect(html).toContain("Research Agent");
+      expect(html).toContain("0x2222…2222"); // address remains visible as secondary info
+    }
+  });
+
+  it("agent identity: renaming replaces the old name everywhere", async () => {
+    const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `label=${encodeURIComponent("Claude Sales Agent")}`,
+    });
+    expect(res.status).toBe(302);
+
+    for (const path of ["/", "/activity", "/keys"]) {
+      const html = await (await app.request(path)).text();
+      expect(html).toContain("Claude Sales Agent");
+      expect(html).not.toContain("Research Agent");
+    }
+  });
+
+  it("agent identity: labels are Agent Spend's own data, never sent on-chain", async () => {
+    // Naming an agent must not touch the chain: remaining budget, read the
+    // same way the dashboard reads it, is unaffected by the rename above.
+    const { budgets } = await reader.remainingBudgets(ACCOUNT, AGENT_KEY);
+    expect(budgets[0]!.remaining).toBe(487_500_000n);
+  });
+
+  it("agent identity: clearing the label (empty string) reverts to address-only display", async () => {
+    const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "label=",
+    });
+    expect(res.status).toBe(302);
+
+    const html = await (await app.request("/")).text();
+    expect(html).not.toContain("Claude Sales Agent");
+    expect(html).toContain("0x2222…2222");
+  });
+
   it("indexing is idempotent across restarts from block 0", async () => {
     const db2 = openDb(":memory:");
     const indexer2 = createIndexer(config, db2);

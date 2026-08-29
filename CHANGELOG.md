@@ -19,6 +19,13 @@ This is the shared handoff log for the AI team. Add concise entries when meaning
 - ComfyUI assigned as visual production engine.
 - Initial positioning: “Spend management for AI agents.”
 
+### 2026-08-29 — Claude — Agent Identity MVP; total-spent discrepancy explained
+- Shipped Agent Identity: human-readable labels for agent access keys. New local `agent_labels` table (Agent Spend's own data, never on-chain); `POST /agents/:account/:keyId/label` to set or clear a name; naming/renaming happens inline on the Overview page and the name now shows on Overview, Activity, and Keys, with the address kept visible as secondary text. Unnamed agents are unchanged.
+- Investigated the reported 17.50 vs. 12.50+4.99 total-spent discrepancy: confirmed via raw on-chain logs that each payment transaction debits the access key's budget twice (the payment amount, plus a real flat ~0.005903 pathUSD per-transaction fee) — `spendTotals()` is correctly summing both, and the total matches the on-chain remaining budget exactly. No calculation changed. Documented in ENGINEERING.md.
+- Extended `test/e2e.test.ts` with naming, renaming, clearing, and "unnamed agents unaffected" coverage; `npm test` and `npm run typecheck` pass.
+- Deployed to Railway (Path A: unmodified persistent-process architecture, no serverless rearchitecture) — live and reachable in a browser.
+- Handoff: changes are local/uncommitted pending founder review — not yet pushed or merged.
+
 ### 2026-08-28 — Claude — Live Moderato validation succeeded end-to-end
 - Ran the full milestone live on Moderato from a local machine (the prior remote environment was network-blocked): faucet-funded a fresh testnet-only account, authorized a scoped agent access key (500 pathUSD / 30 days), and made two real memo-tagged payments (tx `0xd51fc556…`, `0x2d4475a9…`).
 - Dashboard, pointed at the same account and RPC, indexed both automatically and displayed the agent, amounts, recipients, memo commitments, transactions, and live remaining budget (482.50 pathUSD) — matching the on-chain read exactly.
