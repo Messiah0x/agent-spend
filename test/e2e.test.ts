@@ -23,6 +23,10 @@ const VENDOR = getAddress("0x3333333333333333333333333333333333333333");
 const REASON = "LLM inference credits, batch #4821";
 const MEMO = keccak256(toHex(REASON));
 
+const ADMIN_USER = "admin";
+const ADMIN_PASSWORD = "test-only-secret";
+const AUTH_HEADER = `Basic ${Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString("base64")}`;
+
 let devnet: Server;
 
 async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
@@ -51,6 +55,8 @@ describe("milestone: agent payment appears on the dashboard", () => {
     WATCHED_ACCOUNTS: ACCOUNT,
     DB_PATH: ":memory:",
     CONFIRMATIONS: "0",
+    ADMIN_USER,
+    ADMIN_PASSWORD,
   } as NodeJS.ProcessEnv);
   const db = openDb(":memory:");
   const indexer = createIndexer(config, db);
@@ -134,7 +140,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
   it("agent identity: naming an agent from Overview shows the name everywhere, address still visible", async () => {
     const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER },
       body: `label=${encodeURIComponent("Research Agent")}`,
     });
     expect(res.status).toBe(302);
@@ -149,7 +155,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
   it("agent identity: renaming replaces the old name everywhere", async () => {
     const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER },
       body: `label=${encodeURIComponent("Claude Sales Agent")}`,
     });
     expect(res.status).toBe(302);
@@ -171,7 +177,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
   it("agent identity: clearing the label (empty string) reverts to address-only display", async () => {
     const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER },
       body: "label=",
     });
     expect(res.status).toBe(302);
@@ -179,6 +185,48 @@ describe("milestone: agent payment appears on the dashboard", () => {
     const html = await (await app.request("/")).text();
     expect(html).not.toContain("Claude Sales Agent");
     expect(html).toContain("0x2222…2222");
+  });
+
+  it("agent identity: write route rejects requests with no or wrong credentials", async () => {
+    const noAuth = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "label=Hijacked",
+    });
+    expect(noAuth.status).toBe(401);
+
+    const wrongAuth = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        authorization: `Basic ${Buffer.from("admin:wrong-password").toString("base64")}`,
+      },
+      body: "label=Hijacked",
+    });
+    expect(wrongAuth.status).toBe(401);
+
+    // Neither attempt actually changed anything.
+    const html = await (await app.request("/")).text();
+    expect(html).not.toContain("Hijacked");
+  });
+
+  it("agent identity: write route fails closed when ADMIN_USER/ADMIN_PASSWORD are not configured", async () => {
+    const unauthedConfig = loadConfig({
+      TEMPO_RPC_URL: RPC_URL,
+      WATCHED_ACCOUNTS: ACCOUNT,
+      DB_PATH: ":memory:",
+      CONFIRMATIONS: "0",
+    } as NodeJS.ProcessEnv);
+    const unauthedDb = openDb(":memory:");
+    const unauthedApp = createServer(unauthedConfig, unauthedDb, createReader(unauthedConfig));
+
+    const res = await unauthedApp.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "label=Should Not Work",
+    });
+    expect(res.status).toBe(503);
+    expect(unauthedDb.listLabels().size).toBe(0);
   });
 
   it("indexing is idempotent across restarts from block 0", async () => {

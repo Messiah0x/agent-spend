@@ -19,7 +19,7 @@ Before coding, read PRODUCT.md and this file. Keep the implementation aligned wi
 - Activity / spend feed
 - Keys / policy history
 - Indexes key authorization, revocation, spending-limit updates, access-key spend, Transfer, and TransferWithMemo events
-- Agent identity: human-readable labels for access keys, named/renamed from Overview, shown on Overview/Activity/Keys. Agent Spend's own data (local `agent_labels` table) — never written to Tempo, never affects on-chain enforcement.
+- Agent identity: human-readable labels for access keys, named/renamed from Overview, shown on Overview/Activity/Keys. Agent Spend's own data (local `agent_labels` table) — never written to Tempo, never affects on-chain enforcement. The write route (`POST /agents/:account/:keyId/label`) is guarded by HTTP Basic Auth (`ADMIN_USER`/`ADMIN_PASSWORD`) and fails closed (503) if either is unset — needed once the dashboard is on a public URL with no other auth in front of it. Read-only pages remain public.
 - Local devnet fixture and automated tests
 
 ## Immediate engineering milestone

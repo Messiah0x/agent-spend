@@ -51,8 +51,19 @@ Defaults (verified against the [tempoxyz/tempo](https://github.com/tempoxyz/temp
 | `DB_PATH` | `./data/agent-spend.db` |
 | `PORT` | `3000` |
 | `EXPLORER_URL` | unset (tx links off) |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | unset — see below |
 
 AccountKeychain precompile: `0xaAAAaaAA00000000000000000000000000000000`.
+
+### Protecting agent naming on a public deployment
+
+The dashboard itself is read-only and meant to be viewed freely. Naming/renaming
+an agent (`POST /agents/:account/:keyId/label`) is the one write route, and it's
+guarded by HTTP Basic Auth: set both `ADMIN_USER` and `ADMIN_PASSWORD` to enable
+it. **Until both are set, that route fails closed (503)** — it does not fall
+back to being open. This is deliberately not a full auth system: it's one
+shared credential for a single operator, applied only to that one route; every
+other page stays public with no login.
 
 ## How it works
 

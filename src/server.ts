@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { basicAuth } from "hono/basic-auth";
 import type { Address } from "viem";
 import type { Config } from "./config.js";
 import type { Db, KeyRow, PaymentRow, KeyEventRow } from "./db.js";
@@ -234,6 +235,16 @@ export function createServer(config: Config, db: Db, reader: Reader) {
 
   // ── Agent identity ───────────────────────────────────────────────────────
   // Local to Agent Spend only: never touches Tempo or on-chain enforcement.
+  // Fails closed: until ADMIN_USER/ADMIN_PASSWORD are both set, every write
+  // under /agents/* is rejected rather than left open on a public deployment.
+  app.use("/agents/*", async (c, next) => {
+    const { adminUser, adminPassword } = config;
+    if (!adminUser || !adminPassword) {
+      return c.text("Agent naming is disabled: ADMIN_USER/ADMIN_PASSWORD are not configured.", 503);
+    }
+    return basicAuth({ username: adminUser, password: adminPassword })(c, next);
+  });
+
   app.post("/agents/:account/:keyId/label", async (c) => {
     const { account, keyId } = c.req.param();
     const body = await c.req.parseBody();
