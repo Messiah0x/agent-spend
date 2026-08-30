@@ -23,6 +23,12 @@ export interface Config {
   port: number;
   /** Optional block-explorer base URL; tx links are omitted when unset. */
   explorerUrl?: string;
+  /**
+   * Basic Auth credentials guarding write routes (currently: agent naming).
+   * Undefined unless both are set — writes fail closed (503) until they are.
+   */
+  adminUser?: string;
+  adminPassword?: string;
 }
 
 function parseAccounts(raw: string): Address[] {
@@ -67,5 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dbPath: env.DB_PATH ?? "./data/agent-spend.db",
     port: Number(env.PORT ?? "3000"),
     explorerUrl: env.EXPLORER_URL || undefined,
+    adminUser: env.ADMIN_USER || undefined,
+    adminPassword: env.ADMIN_PASSWORD || undefined,
   };
 }

@@ -170,6 +170,31 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .secondary { color: var(--text-secondary); }
 .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
+.agent-name { font-weight: 620; }
+.label-form { display: flex; gap: 6px; margin-top: 8px; }
+.label-form input {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  width: 160px;
+  background: var(--surface);
+  color: var(--text);
+}
+.label-form button {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.label-form button:hover { background: var(--neutral-bg); }
+
 .badge {
   display: inline-flex;
   align-items: center;

@@ -19,12 +19,24 @@ Prove the full live flow on Tempo:
 4. The dashboard shows the agent, amount, recipient, memo, transaction, and remaining budget.
 
 ## Current priorities
-1. Live Tempo testnet validation
-2. Agent labels / identity
+1. Live Tempo testnet validation — done, validated live on Moderato 2026-08-28
+2. Agent labels / identity — MVP implemented 2026-08-29, pending review
 3. Reasons ledger
 4. Approval / escalation workflows
 5. Key lifecycle and provisioning UI
 6. Credit and yield later
+
+## Agent Identity (MVP)
+Let a user attach a human-readable name to an agent access key — entirely
+within Agent Spend, never Tempo:
+1. Name an agent inline from the Overview page.
+2. Rename it any time, same place.
+3. The name shows everywhere the raw address used to: Overview, Activity, Keys.
+4. The address stays visible as secondary information — the name never hides it.
+5. Unnamed agents render exactly as before this feature existed.
+
+**Status: implemented 2026-08-29, pending review/merge.** See ENGINEERING.md
+and CHANGELOG.md.
 
 ## Non-goals for now
 - Rebuilding Tempo's native spending-rule engine

@@ -19,6 +19,7 @@ Before coding, read PRODUCT.md and this file. Keep the implementation aligned wi
 - Activity / spend feed
 - Keys / policy history
 - Indexes key authorization, revocation, spending-limit updates, access-key spend, Transfer, and TransferWithMemo events
+- Agent identity: human-readable labels for access keys, named/renamed from Overview, shown on Overview/Activity/Keys. Agent Spend's own data (local `agent_labels` table) — never written to Tempo, never affects on-chain enforcement. The write route (`POST /agents/:account/:keyId/label`) is guarded by HTTP Basic Auth (`ADMIN_USER`/`ADMIN_PASSWORD`) and fails closed (503) if either is unset — needed once the dashboard is on a public URL with no other auth in front of it. Read-only pages remain public.
 - Local devnet fixture and automated tests
 
 ## Immediate engineering milestone
@@ -61,7 +62,7 @@ remaining budget (482.50 pathUSD), matching the on-chain read. See CHANGELOG.md.
 
 ## Known follow-ups
 - Improve mobile table overflow after live validation.
-- Review event association for transactions containing multiple relevant events.
+- Review event association for transactions containing multiple relevant events. Investigated 2026-08-29: each payment tx fires *two* `AccessKeySpend` events against the key's budget (the payment amount, plus a flat ~0.005903 pathUSD per-transaction fee debited from the same limit — separate from the network fee `Transfer` to the protocol's `0xfeec…` collector, which comes out of the root account's balance, not the key's budget). `spendTotals()` correctly sums both — this is why "Total spent" (e.g. 17.50) is larger than the sum of payment amounts alone (12.50 + 4.99 = 17.49): the fee debit is real and belongs in it, since it's what makes the figure reconcile with the on-chain remaining budget. Not a bug; do not "fix" by excluding fee-only spend rows. What's still open: the Activity feed's join fans one spend row out into two near-duplicate rows (once against the plain `Transfer`, once against `TransferWithMemo`) and shows the fee-only spend as an unlabeled "−0.00" row — worth deduping/labeling for clarity, but cosmetic.
 - Consider deeper reorg handling later.
 
 ## Do not build yet

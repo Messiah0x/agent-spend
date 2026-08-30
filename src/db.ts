@@ -125,6 +125,13 @@ export function openDb(path: string) {
       new_limit TEXT NOT NULL,
       PRIMARY KEY (tx_hash, log_index)
     );
+    CREATE TABLE IF NOT EXISTS agent_labels (
+      account TEXT NOT NULL,
+      key_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      updated_time INTEGER NOT NULL,
+      PRIMARY KEY (account, key_id)
+    );
   `);
 
   const stmts = {
@@ -152,6 +159,12 @@ export function openDb(path: string) {
       INSERT OR IGNORE INTO limit_updates (tx_hash, log_index, block_number, block_time, account, key_id, token, new_limit)
       VALUES (@tx_hash, @log_index, @block_number, @block_time, @account, @key_id, @token, @new_limit)
     `),
+    upsertLabel: db.prepare(`
+      INSERT INTO agent_labels (account, key_id, label, updated_time)
+      VALUES (@account, @key_id, @label, @updated_time)
+      ON CONFLICT (account, key_id) DO UPDATE SET label = excluded.label, updated_time = excluded.updated_time
+    `),
+    clearLabel: db.prepare("DELETE FROM agent_labels WHERE account = ? AND key_id = ?"),
   };
 
   return {
@@ -181,6 +194,32 @@ export function openDb(path: string) {
     },
     insertLimitUpdate(row: LimitUpdateRow) {
       stmts.insertLimitUpdate.run(row);
+    },
+
+    /**
+     * Set (or, with an empty/whitespace-only label, clear) the human-readable
+     * name for one agent access key. Agent Spend's own data only — this never
+     * touches Tempo. Addresses are lowercased to match how the indexer
+     * stores them.
+     */
+    setLabel(account: string, keyId: string, label: string) {
+      const acc = account.toLowerCase();
+      const kid = keyId.toLowerCase();
+      const trimmed = label.trim().slice(0, 64);
+      if (!trimmed) {
+        stmts.clearLabel.run(acc, kid);
+        return;
+      }
+      stmts.upsertLabel.run({ account: acc, key_id: kid, label: trimmed, updated_time: Math.floor(Date.now() / 1000) });
+    },
+    /** All agent labels, keyed by `${account}|${key_id}` (both lowercase). */
+    listLabels(): Map<string, string> {
+      const rows = db.prepare("SELECT account, key_id, label FROM agent_labels").all() as {
+        account: string;
+        key_id: string;
+        label: string;
+      }[];
+      return new Map(rows.map((r) => [`${r.account}|${r.key_id}`, r.label]));
     },
 
     listKeys(): KeyRow[] {
