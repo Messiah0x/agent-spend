@@ -33,6 +33,45 @@ export interface Config {
   publicUrl?: string;
   /** Trust X-Forwarded-For for client IPs (set when behind a reverse proxy such as Railway). */
   trustProxy: boolean;
+  /**
+   * Optional operator key that executes control actions on-chain (revoke,
+   * set limit, authorize, approve). Undefined → on-chain controls disabled.
+   */
+  operator?: {
+    mode: "admin" | "root" | "devnet";
+    account: Address;
+    /** Absent in devnet mode. Never logged or rendered. */
+    privateKey?: `0x${string}`;
+  };
+  /** Warn when an agent's remaining budget drops below this % of its limit. */
+  alertThresholdPct: number;
+  /** Optional webhook (Slack-compatible `{ text }` JSON) for approvals and budget alerts. */
+  webhookUrl?: string;
+}
+
+function parseOperator(env: NodeJS.ProcessEnv, watched: Address[], rpcUrl: string): Config["operator"] {
+  const mode = env.OPERATOR_MODE;
+  if (!mode) return undefined;
+  if (mode !== "admin" && mode !== "root" && mode !== "devnet") {
+    throw new Error(`OPERATOR_MODE must be admin, root, or devnet, got: ${mode}`);
+  }
+  const rawAccount = env.OPERATOR_ACCOUNT ?? (watched.length === 1 ? watched[0] : undefined);
+  if (!rawAccount || !isAddress(rawAccount)) {
+    throw new Error("OPERATOR_ACCOUNT must be set to one of WATCHED_ACCOUNTS");
+  }
+  const account = getAddress(rawAccount);
+  if (!watched.some((a) => a.toLowerCase() === account.toLowerCase())) {
+    throw new Error("OPERATOR_ACCOUNT must be one of WATCHED_ACCOUNTS");
+  }
+  if (mode === "devnet") {
+    if (rpcUrl === MODERATO_RPC_URL) throw new Error("OPERATOR_MODE=devnet cannot be used against a real Tempo RPC");
+    return { mode, account };
+  }
+  const pk = env.OPERATOR_PRIVATE_KEY;
+  if (!pk || !/^0x[0-9a-fA-F]{64}$/.test(pk)) {
+    throw new Error(`OPERATOR_PRIVATE_KEY (32-byte hex) is required for OPERATOR_MODE=${mode}`);
+  }
+  return { mode, account, privateKey: pk as `0x${string}` };
 }
 
 function intEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): number {
@@ -72,6 +111,20 @@ function parseTokens(raw: string): TokenConfig[] {
     });
 }
 
+function parseWebhook(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("WEBHOOK_URL must be a valid URL");
+  }
+  if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+    throw new Error("WEBHOOK_URL must use https");
+  }
+  return url.toString();
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const accounts = env.WATCHED_ACCOUNTS;
   if (!accounts) {
@@ -79,7 +132,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       "WATCHED_ACCOUNTS is required (comma-separated Tempo account addresses to watch)",
     );
   }
-  return {
+  const config: Config = {
     rpcUrl: env.TEMPO_RPC_URL ?? MODERATO_RPC_URL,
     chainId: intEnv(env, "TEMPO_CHAIN_ID", String(MODERATO_CHAIN_ID)),
     watchedAccounts: parseAccounts(accounts),
@@ -94,5 +147,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adminPassword: env.ADMIN_PASSWORD || undefined,
     publicUrl: env.PUBLIC_URL || undefined,
     trustProxy: env.TRUST_PROXY === "1" || env.TRUST_PROXY === "true",
+    operator: undefined,
+    alertThresholdPct: Math.min(intEnv(env, "ALERT_THRESHOLD_PCT", "20"), 100),
+    webhookUrl: parseWebhook(env.WEBHOOK_URL),
   };
+  config.operator = parseOperator(env, config.watchedAccounts, config.rpcUrl);
+  return config;
 }

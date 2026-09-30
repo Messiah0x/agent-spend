@@ -1,7 +1,7 @@
 {
   "name": "agent-spend",
   "version": "0.2.0",
-  "description": "Spend visibility dashboard for AI agents on Tempo",
+  "description": "Spend management and financial controls for AI agents on Tempo",
   "scripts": {
     "test": "vitest run",
     "dev": "tsx src/index.ts",
@@ -10,7 +10,9 @@
     "demo": "tsx scripts/demo-agent.ts",
     "live-agent": "tsx scripts/live-agent.ts",
     "typecheck": "tsc --noEmit",
-    "mcp": "tsx src/mcp.ts"
+    "mcp": "tsx src/mcp.ts",
+    "new-agent-key": "tsx scripts/new-agent-key.ts",
+    "demo:stack": "tsx scripts/demo-stack.ts"
   },
   "repository": {
     "type": "git",
@@ -36,5 +38,8 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
-  "type": "module"
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
 }

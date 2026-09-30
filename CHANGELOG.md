@@ -11,12 +11,23 @@ This is the shared handoff log for the AI team. Add concise entries when meaning
 ### Engineering
 - MVP dashboard + Tempo event indexer, validated live on Moderato (2026-08-28).
 - Agent Identity merged to main, with fail-closed Basic Auth on the write route.
-- Hackathon push in progress (2026-09-30): hardening, reasons ledger, approvals and key controls — see entries below.
+- Hackathon-ready MVP (2026-09-30): hardening, reasons ledger + SDK + MCP, on-chain key controls, approvals, alerts, agent pages — see entries below. 71 tests, CI on every PR.
 
 ### Marketing
 - Grok assigned as X marketing manager.
 - ComfyUI assigned as visual production engine.
 - Initial positioning: “Spend management for AI agents.”
+
+### 2026-09-30 — Claude — Control plane: on-chain key controls, approvals, alerts, agent pages
+- Key controls from the dashboard — authorize a new agent (native Tempo spending limit, period, expiry), set a limit, revoke (kill switch). Each is a real AccountKeychain transaction submitted by an optional operator key (`OPERATOR_MODE=admin` uses an admin access key, so the root key never lives on the server). Every action is in an operator audit log.
+- Approvals: an agent that hits its limit sends a signed budget request (SDK `requestApproval`, MCP `request_approval`); the owner is notified by webhook, reviews it on the new **Approvals** page, and approving raises the limit on-chain. Double-submits can't execute twice; expired (7d) requests can't be approved; denials carry a note back to the agent.
+- Agent pages: budget bar, burn rate, runway, 30-day spend chart, top recipients, controls, requests, key history, operator actions.
+- Alerts: "Needs attention" on the Overview (low/exhausted budgets, pending requests); webhook alerts once per budget period (`ALERT_THRESHOLD_PCT`, `WEBHOOK_URL`).
+- Demo: `npm run demo:stack` + `npm run demo` runs the whole story in two terminals; `npm run new-agent-key`; `.env.example`; GitHub Actions CI.
+- Security: all new writes behind fail-closed Basic Auth + CSRF + rate limits; strict amount/address validation; no open redirects; fixed-string flash messages; Slack-escaped webhook text; RPC URLs stripped from surfaced errors.
+- Verified in a real browser (Playwright): approve flow incl. confirm dialog, no CSP violations, desktop + mobile layouts.
+- New `test/controls.test.ts`; 71 tests pass, typecheck clean.
+- Handoff: PR `claude/controls-approvals` (stacked on `claude/reasons-ledger`). To enable controls on Railway: authorize an admin access key for the account, then set `OPERATOR_MODE=admin`, `OPERATOR_PRIVATE_KEY`, plus `TRUST_PROXY=1`, `PUBLIC_URL`, optionally `WEBHOOK_URL`.
 
 ### 2026-09-30 — Claude — Reasons ledger, Agent SDK, MCP server, JSON API
 - Every payment can now carry a signed reason: the agent hashes a reason record (payer, key, token, recipient, amount, reason, optional MPP context, nonce), signs it with its access key, registers it, and pays with the hash as the memo. Activity shows the reason with a **Verified** badge (chain payment matches the record) or **Mismatch**; `/payments/:tx` shows the full proof.
