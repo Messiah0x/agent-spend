@@ -29,12 +29,12 @@
     "@hono/node-server": "^2.1.1",
     "better-sqlite3": "^13.0.3",
     "hono": "^4.13.2",
+    "tsx": "^4.23.12",
     "viem": "^2.55.16"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
-    "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
