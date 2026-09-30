@@ -103,6 +103,39 @@ const CLASSIFIED_SPENDS = `
     FROM joined j
   )`;
 
+export type ApprovalStatus = "pending" | "approved" | "denied" | "failed";
+
+export interface ApprovalRow {
+  id: string;
+  account: string;
+  key_id: string;
+  token: string;
+  amount: string;
+  to_addr: string | null;
+  reason: string;
+  request_json: string;
+  signature: string;
+  status: ApprovalStatus;
+  created_time: number;
+  decided_time: number | null;
+  decided_by: string | null;
+  new_limit: string | null;
+  tx_hash: string | null;
+  note: string | null;
+}
+
+export interface AuditRow {
+  id: number;
+  time: number;
+  actor: string;
+  action: string;
+  account: string | null;
+  key_id: string | null;
+  detail: string;
+  tx_hash: string | null;
+  ok: number;
+}
+
 export interface StoredReason {
   memo: string;
   account: string;
@@ -180,6 +213,44 @@ export function openDb(path: string) {
       created_time INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_reasons_key ON reasons (account, key_id, created_time DESC);
+    CREATE TABLE IF NOT EXISTS approvals (
+      id TEXT PRIMARY KEY,
+      account TEXT NOT NULL,
+      key_id TEXT NOT NULL,
+      token TEXT NOT NULL,
+      amount TEXT NOT NULL,
+      to_addr TEXT,
+      reason TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_time INTEGER NOT NULL,
+      decided_time INTEGER,
+      decided_by TEXT,
+      new_limit TEXT,
+      tx_hash TEXT,
+      note TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals (status, created_time DESC);
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      time INTEGER NOT NULL,
+      actor TEXT NOT NULL,
+      action TEXT NOT NULL,
+      account TEXT,
+      key_id TEXT,
+      detail TEXT NOT NULL,
+      tx_hash TEXT,
+      ok INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS alerts_sent (
+      account TEXT NOT NULL,
+      key_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      window TEXT NOT NULL,
+      time INTEGER NOT NULL,
+      PRIMARY KEY (account, key_id, kind, window)
+    );
     CREATE TABLE IF NOT EXISTS agent_labels (
       account TEXT NOT NULL,
       key_id TEXT NOT NULL,
@@ -355,6 +426,177 @@ export function openDb(path: string) {
           keyId.toLowerCase(),
         ) as KeyRow | undefined) ?? null
       );
+    },
+
+    // ── Approvals ───────────────────────────────────────────────────────────
+    insertApproval(row: Omit<ApprovalRow, "status" | "decided_time" | "decided_by" | "new_limit" | "tx_hash" | "note">): boolean {
+      const res = db
+        .prepare(
+          `INSERT OR IGNORE INTO approvals (id, account, key_id, token, amount, to_addr, reason, request_json, signature, status, created_time)
+           VALUES (@id, @account, @key_id, @token, @amount, @to_addr, @reason, @request_json, @signature, 'pending', @created_time)`,
+        )
+        .run(row);
+      return res.changes > 0;
+    },
+    getApproval(id: string): ApprovalRow | null {
+      return (db.prepare("SELECT * FROM approvals WHERE id = ?").get(id.toLowerCase()) as ApprovalRow | undefined) ?? null;
+    },
+    listApprovals(opts: { status?: ApprovalStatus; account?: string; keyId?: string; limit?: number } = {}): ApprovalRow[] {
+      const where: string[] = [];
+      const params: (string | number)[] = [];
+      if (opts.status) {
+        where.push("status = ?");
+        params.push(opts.status);
+      }
+      if (opts.account) {
+        where.push("account = ?");
+        params.push(opts.account.toLowerCase());
+      }
+      if (opts.keyId) {
+        where.push("key_id = ?");
+        params.push(opts.keyId.toLowerCase());
+      }
+      params.push(opts.limit ?? 200);
+      return db
+        .prepare(
+          `SELECT * FROM approvals ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_time DESC, rowid DESC LIMIT ?`,
+        )
+        .all(...params) as ApprovalRow[];
+    },
+    pendingApprovalCount(account?: string, keyId?: string): number {
+      const row = (
+        account && keyId
+          ? db
+              .prepare("SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending' AND account = ? AND key_id = ?")
+              .get(account.toLowerCase(), keyId.toLowerCase())
+          : db.prepare("SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending'").get()
+      ) as { n: number };
+      return row.n;
+    },
+    /**
+     * Move a pending approval to a decided state. Returns false if it was no
+     * longer pending (double-submit / concurrent decision) — callers must
+     * not execute anything on-chain in that case.
+     */
+    claimApproval(id: string, decidedBy: string): boolean {
+      const res = db
+        .prepare(
+          "UPDATE approvals SET status = 'approved', decided_time = ?, decided_by = ? WHERE id = ? AND status = 'pending'",
+        )
+        .run(Math.floor(Date.now() / 1000), decidedBy, id.toLowerCase());
+      return res.changes > 0;
+    },
+    finishApproval(id: string, p: { status: ApprovalStatus; newLimit?: string | null; txHash?: string | null; note?: string | null; decidedBy?: string }) {
+      db.prepare(
+        `UPDATE approvals SET status = ?, new_limit = COALESCE(?, new_limit), tx_hash = COALESCE(?, tx_hash), note = COALESCE(?, note),
+           decided_time = COALESCE(decided_time, ?), decided_by = COALESCE(decided_by, ?) WHERE id = ?`,
+      ).run(
+        p.status,
+        p.newLimit ?? null,
+        p.txHash ?? null,
+        p.note ?? null,
+        Math.floor(Date.now() / 1000),
+        p.decidedBy ?? null,
+        id.toLowerCase(),
+      );
+    },
+
+    // ── Audit log (operator actions) ────────────────────────────────────────
+    audit(p: { actor: string; action: string; account?: string; keyId?: string; detail: string; txHash?: string | null; ok: boolean }) {
+      db.prepare(
+        "INSERT INTO audit_log (time, actor, action, account, key_id, detail, tx_hash, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        Math.floor(Date.now() / 1000),
+        p.actor,
+        p.action,
+        p.account?.toLowerCase() ?? null,
+        p.keyId?.toLowerCase() ?? null,
+        p.detail,
+        p.txHash ?? null,
+        p.ok ? 1 : 0,
+      );
+    },
+    listAudit(opts: { account?: string; keyId?: string; limit?: number } = {}): AuditRow[] {
+      if (opts.account && opts.keyId) {
+        return db
+          .prepare("SELECT * FROM audit_log WHERE account = ? AND key_id = ? ORDER BY id DESC LIMIT ?")
+          .all(opts.account.toLowerCase(), opts.keyId.toLowerCase(), opts.limit ?? 100) as AuditRow[];
+      }
+      return db.prepare("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?").all(opts.limit ?? 100) as AuditRow[];
+    },
+
+    // ── Alerts ──────────────────────────────────────────────────────────────
+    /** Record that an alert was sent; returns false if already sent for this window. */
+    markAlertSent(account: string, keyId: string, kind: string, window: string): boolean {
+      const res = db
+        .prepare("INSERT OR IGNORE INTO alerts_sent (account, key_id, kind, window, time) VALUES (?, ?, ?, ?, ?)")
+        .run(account.toLowerCase(), keyId.toLowerCase(), kind, window, Math.floor(Date.now() / 1000));
+      return res.changes > 0;
+    },
+
+    // ── Analytics ───────────────────────────────────────────────────────────
+    /**
+     * Best available estimate of a key's configured limit per token: the
+     * latest SpendingLimitUpdated, or failing that the largest
+     * remaining+amount observed on a spend (≈ the limit at period start).
+     * Initial limits aren't evented on-chain, so this is an estimate.
+     */
+    limitEstimates(account: string, keyId: string): Map<string, bigint> {
+      const acc = account.toLowerCase();
+      const kid = keyId.toLowerCase();
+      const updates = db
+        .prepare(
+          "SELECT token, new_limit, block_number FROM limit_updates WHERE account = ? AND key_id = ? ORDER BY block_number, log_index",
+        )
+        .all(acc, kid) as { token: string; new_limit: string; block_number: number }[];
+      const lastUpdate = new Map<string, { limit: bigint; block: number }>();
+      for (const u of updates) lastUpdate.set(u.token, { limit: BigInt(u.new_limit), block: u.block_number });
+
+      const spends = db
+        .prepare("SELECT token, amount, remaining, block_number FROM spends WHERE account = ? AND key_id = ?")
+        .all(acc, kid) as { token: string; amount: string; remaining: string; block_number: number }[];
+      const out = new Map<string, bigint>();
+      for (const [token, u] of lastUpdate) out.set(token, u.limit);
+      for (const r of spends) {
+        const u = lastUpdate.get(r.token);
+        // Spends before the latest limit update describe an older limit.
+        if (u && r.block_number <= u.block) continue;
+        const v = BigInt(r.amount) + BigInt(r.remaining);
+        if (v > (out.get(r.token) ?? 0n)) out.set(r.token, v);
+      }
+      return out;
+    },
+    /** Daily spend totals (UTC days) for one key since `sinceUnix`, fees included. */
+    dailySpend(account: string, keyId: string, sinceUnix: number): Map<string, bigint> {
+      const rows = db
+        .prepare("SELECT block_time, amount FROM spends WHERE account = ? AND key_id = ? AND block_time >= ?")
+        .all(account.toLowerCase(), keyId.toLowerCase(), sinceUnix) as { block_time: number; amount: string }[];
+      const out = new Map<string, bigint>();
+      for (const r of rows) {
+        const day = new Date(r.block_time * 1000).toISOString().slice(0, 10);
+        out.set(day, (out.get(day) ?? 0n) + BigInt(r.amount));
+      }
+      return out;
+    },
+    /** Top recipients by payment volume for one key. */
+    topRecipients(account: string, keyId: string, limit = 5): { to_addr: string; total: bigint; count: number }[] {
+      const rows = db
+        .prepare(
+          `${CLASSIFIED_SPENDS}
+           SELECT to_addr, amount FROM classified WHERE account = ? AND key_id = ? AND kind = 'payment' AND to_addr IS NOT NULL`,
+        )
+        .all(account.toLowerCase(), keyId.toLowerCase()) as { to_addr: string; amount: string }[];
+      const agg = new Map<string, { total: bigint; count: number }>();
+      for (const r of rows) {
+        const e = agg.get(r.to_addr) ?? { total: 0n, count: 0 };
+        e.total += BigInt(r.amount);
+        e.count++;
+        agg.set(r.to_addr, e);
+      }
+      return [...agg.entries()]
+        .map(([to_addr, e]) => ({ to_addr, ...e }))
+        .sort((a, b) => (b.total > a.total ? 1 : b.total < a.total ? -1 : 0))
+        .slice(0, limit);
     },
 
     listKeys(): KeyRow[] {

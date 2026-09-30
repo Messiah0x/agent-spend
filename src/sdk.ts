@@ -16,6 +16,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { tempo, tempoModerato } from "viem/chains";
 import { Account as TempoAccount, tempoActions } from "viem/tempo";
 import { MODERATO_CHAIN_ID, MODERATO_RPC_URL, PATH_USD_ADDRESS } from "./chain.js";
+import { approvalId, buildApprovalRequest } from "./approvals.js";
 import { buildReasonRecord, reasonMemo, type ReasonContext, type ReasonRecord } from "./reasons.js";
 
 /** Moves the funds. Swappable so the same agent code runs on Tempo or the local devnet. */
@@ -111,6 +112,15 @@ export interface AgentOptions {
   fetch?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
+export interface ApprovalStatus {
+  id: Hex;
+  status: "pending" | "approved" | "denied" | "failed" | "expired";
+  amount: string;
+  newLimit: string | null;
+  txHash: string | null;
+  note: string | null;
+}
+
 export interface Budget {
   token: string;
   symbol: string;
@@ -195,6 +205,42 @@ export function createAgent(opts: AgentOptions) {
       const { memo } = await agent.registerReason({ ...p, token });
       const { txHash } = await payer.transfer({ token, to: p.to, amount: p.amount, memo });
       return { txHash, memo };
+    },
+
+    /**
+     * Ask the owner for more budget (after a BudgetExceededError, typically).
+     * Approval raises the key's on-chain limit; poll with `approval()` or
+     * `waitForApproval()`.
+     */
+    async requestApproval(p: { amount: bigint; reason: string; to?: Address; token?: Address }): Promise<ApprovalStatus> {
+      const request = buildApprovalRequest({
+        account: opts.account,
+        keyId,
+        token: p.token ?? defaultToken,
+        amount: p.amount,
+        to: p.to,
+        reason: p.reason,
+      });
+      const signature = await signer.signMessage({ message: { raw: approvalId(request) } });
+      return call<ApprovalStatus>("/approvals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ request, signature }),
+      });
+    },
+
+    async approval(id: Hex): Promise<ApprovalStatus> {
+      return call<ApprovalStatus>(`/approvals/${id}`);
+    },
+
+    /** Poll until the request is decided (or `timeoutMs` passes — then returns the pending status). */
+    async waitForApproval(id: Hex, o: { timeoutMs?: number; pollMs?: number } = {}): Promise<ApprovalStatus> {
+      const deadline = Date.now() + (o.timeoutMs ?? 10 * 60_000);
+      for (;;) {
+        const s = await agent.approval(id);
+        if (s.status !== "pending" || Date.now() >= deadline) return s;
+        await new Promise((r) => setTimeout(r, o.pollMs ?? 3_000));
+      }
     },
   };
   return agent;

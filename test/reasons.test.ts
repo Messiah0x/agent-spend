@@ -266,7 +266,7 @@ describe("MCP server", () => {
     expect(init.result.serverInfo.name).toBe("agent-spend");
     expect(await handle({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull();
     const list = await call("tools/list");
-    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["get_budget", "pay"]);
+    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["get_budget", "pay", "request_approval", "check_approval"]);
   });
 
   it("get_budget reports the live on-chain budget", async () => {

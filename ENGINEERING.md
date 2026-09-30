@@ -8,7 +8,7 @@ Before coding, read PRODUCT.md and this file. Keep the implementation aligned wi
 
 ## Current architecture
 - TypeScript
-- Hono server-rendered dashboard
+- Hono server-rendered dashboard (strict CSP, no client framework)
 - SQLite
 - viem for Tempo/EVM interaction
 - Event indexer for Tempo AccountKeychain and TIP-20 activity
@@ -27,9 +27,16 @@ Before coding, read PRODUCT.md and this file. Keep the implementation aligned wi
 - Reasons ledger (2026-09-30): `src/reasons.ts` (record format, canonical JSON, keccak256 memo, strict validation, verification against the indexed payment), `reasons` table, `POST /api/v1/reasons` authenticated by the agent's own access-key signature (EIP-191 over the memo; key must be indexed, active, on a watched account; 1,000 records/key/day). Activity shows reason + Verified/Mismatch; `/payments/:txHash` shows the full proof. Only secp256k1 access keys can sign API requests today (P256/WebAuthn keys can still pay; their memos just show without a reason).
 - Agent SDK + MCP (2026-09-30): `src/sdk.ts` (`createAgent().pay/registerReason/budgets`, pluggable `Payer`: real Tempo via `viem/tempo`, or devnet) and `src/mcp.ts` (stdio MCP server, `get_budget`/`pay`). `scripts/demo-agent.ts` and (with `AGENT_SPEND_URL`) `scripts/live-agent.ts` pay through the SDK.
 - JSON API (2026-09-30): `/api/v1` agents/payments/reasons reads; JSON-only writes (415 otherwise; `text/plain` cross-site posts blocked by CSRF guard).
+- Control plane (2026-09-30): `src/writer.ts` operator writer (`admin` access key via keychain — recommended; `root` testnet-only; `devnet` fixture) executes `authorizeKey` / `updateSpendingLimit` / `revokeKey`. Admin routes under `/admin/*` (Basic Auth, CSRF, fail-closed) + `audit_log` table. Without an operator key the dashboard stays read-only for chain state.
+- Approvals (2026-09-30): `src/approvals.ts` signed `limit_increase` requests (`POST /api/v1/approvals`, agent-signed, ≤20 pending/key, 7-day TTL). `/approvals` page; approve = atomic claim (`claimApproval`) then `updateSpendingLimit`; deny with note; failures recorded as `failed`. Without an operator, approval is recorded as "approved (not executed)" with a note.
+- Agent pages + alerts (2026-09-30): `/agents/:account/:keyId` (budget bar, 30-day spend chart, burn rate, runway, top recipients, controls, requests, key history, operator actions). `src/alerts.ts`: low/exhausted detection against an estimated limit (latest `SpendingLimitUpdated`, else max remaining+amount — initial limits aren't evented), Overview "Needs attention", webhook alerts deduped per budget period (`alerts_sent`). `src/notify.ts` Slack-escapes agent text.
+- Demo/tooling (2026-09-30): `npm run demo:stack` (devnet + dashboard with devnet operator in one process), `npm run demo` (payments with reasons → budget exceeded → approval request → waits → retries), `npm run new-agent-key`, `.env.example`, GitHub Actions CI (typecheck + tests).
 - Mobile (2026-09-30): tables collapse into labeled stacked cards under 720px; auto-refresh pauses while a form is being edited.
 
 ## Immediate engineering milestone
+Hackathon-ready MVP (2026-09-30): observe → explain → control → escalate, all tested (71 tests) and demoable in two commands. Next: re-run `live-agent` + an admin-key operator against Moderato to validate the control plane live (the devnet fixture mirrors the precompile events; `admin`-mode `authorizeKey` depends on TIP-1049 being active on the target network).
+
+### Previous milestone: live Moderato validation
 Validate the product against the real Tempo Moderato testnet.
 
 Success means:
@@ -75,8 +82,8 @@ remaining budget (482.50 pathUSD), matching the on-chain read. See CHANGELOG.md.
 
 ## Do not build yet
 - ~~Reasons ledger~~ — built 2026-09-30 (live milestone met; scope unlocked)
-- Approval workflow
-- Full key provisioning UI
+- ~~Approval workflow~~ — built 2026-09-30
+- ~~Full key provisioning UI~~ — authorize / set limit / revoke built 2026-09-30 (recipient-allowlist scopes not yet in the UI)
 - Multi-tenant auth
 - Credit / yield
 

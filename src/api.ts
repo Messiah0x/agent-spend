@@ -4,8 +4,18 @@
 
 import { Hono, type Context } from "hono";
 import { isAddress, isHex, type Address, type Hex } from "viem";
+import {
+  APPROVAL_TTL_SECONDS,
+  MAX_PENDING_PER_KEY,
+  approvalId,
+  isExpired,
+  validateApprovalRequest,
+  type ApprovalRequest,
+} from "./approvals.js";
 import type { Config } from "./config.js";
-import type { Db, PaymentRow, StoredReason } from "./db.js";
+import type { ApprovalRow, Db, PaymentRow, StoredReason } from "./db.js";
+import { formatAmount } from "./format.js";
+import type { Notifier } from "./notify.js";
 import { keyStatus } from "./keys.js";
 import type { Reader } from "./reads.js";
 import {
@@ -110,8 +120,30 @@ function paymentJson(p: EnrichedPayment, labels: Map<string, string>) {
   };
 }
 
-export function createApi(config: Config, db: Db, reader: Reader) {
+/** Public JSON view of an approval (the agent polls this). */
+export function approvalJson(a: ApprovalRow) {
+  const expired = a.status === "pending" && isExpired(a.created_time);
+  return {
+    id: a.id,
+    status: expired ? "expired" : a.status,
+    account: a.account,
+    keyId: a.key_id,
+    token: a.token,
+    amount: a.amount,
+    to: a.to_addr,
+    reason: a.reason,
+    createdAt: a.created_time,
+    expiresAt: a.created_time + APPROVAL_TTL_SECONDS,
+    decidedAt: a.decided_time,
+    newLimit: a.new_limit,
+    txHash: a.tx_hash,
+    note: a.note,
+  };
+}
+
+export function createApi(config: Config, db: Db, reader: Reader, deps: { notify?: Notifier } = {}) {
   const api = new Hono();
+  const notify = deps.notify ?? (async () => {});
 
   api.onError((err, c) => {
     if (err instanceof ApiError) return c.json({ error: err.message }, err.status);
@@ -227,6 +259,72 @@ export function createApi(config: Config, db: Db, reader: Reader) {
     }
     const created = db.insertReason(memo, record, body.signature as string);
     return c.json({ memo, created }, created ? 201 : 200);
+  });
+
+  // ── Approvals ─────────────────────────────────────────────────────────────
+  api.get("/approvals", (c) => {
+    const status = c.req.query("status");
+    if (status && !["pending", "approved", "denied", "failed"].includes(status)) {
+      throw new ApiError(400, "status must be pending, approved, denied, or failed");
+    }
+    const keyId = c.req.query("keyId");
+    if (keyId && !isAddress(keyId, { strict: false })) throw new ApiError(400, "keyId must be an address");
+    const rows = db.listApprovals({ status: status as ApprovalRow["status"] | undefined, keyId, limit: 200 });
+    return c.json({ approvals: rows.map(approvalJson) });
+  });
+
+  api.get("/approvals/:id", (c) => {
+    const id = c.req.param("id");
+    if (!isHex(id) || id.length !== 66) throw new ApiError(400, "id must be 32 bytes of hex");
+    const row = db.getApproval(id);
+    if (!row) throw new ApiError(404, "approval not found");
+    return c.json(approvalJson(row));
+  });
+
+  /**
+   * Agent-signed request for more budget. Body: `{ request, signature }`,
+   * signature = the agent key's EIP-191 signature over the request id
+   * (keccak256 of the request's canonical JSON). Idempotent on id.
+   */
+  api.post("/approvals", async (c) => {
+    const body = (await readJson(c)) as { request?: unknown; signature?: unknown };
+    const problem = validateApprovalRequest(body?.request);
+    if (problem) throw new ApiError(400, problem);
+    const req = body.request as ApprovalRequest;
+    if (!config.tokens.some((t) => t.address.toLowerCase() === req.token)) {
+      throw new ApiError(400, "token is not tracked by this Agent Spend instance");
+    }
+    const id = approvalId(req);
+    const auth = await authenticateAgent(config, db, {
+      account: req.account,
+      keyId: req.keyId,
+      message: id,
+      signature: body.signature,
+    });
+    if (!auth.ok) throw new ApiError(auth.status, auth.error);
+
+    const existing = db.getApproval(id);
+    if (existing) return c.json(approvalJson(existing), 200);
+    if (db.pendingApprovalCount(req.account, req.keyId) >= MAX_PENDING_PER_KEY) {
+      throw new ApiError(429, "too many pending approval requests for this key");
+    }
+    db.insertApproval({
+      id,
+      account: req.account,
+      key_id: req.keyId,
+      token: req.token,
+      amount: req.amount,
+      to_addr: req.to ?? null,
+      reason: req.reason,
+      request_json: JSON.stringify(req),
+      signature: body.signature as string,
+      created_time: Math.floor(Date.now() / 1000),
+    });
+    const name = db.listLabels().get(`${req.account}|${req.keyId}`) ?? req.keyId;
+    const symbol = config.tokens.find((t) => t.address.toLowerCase() === req.token)?.symbol ?? "";
+    const where = config.publicUrl ? ` Review: ${config.publicUrl.replace(/\/$/, "")}/approvals` : "";
+    void notify(`🙋 Agent "${name}" requests +${formatAmount(req.amount)} ${symbol}: ${req.reason}.${where}`);
+    return c.json(approvalJson(db.getApproval(id)!), 201);
   });
 
   return api;

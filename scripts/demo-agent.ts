@@ -6,7 +6,7 @@
 import { getAddress, keccak256, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { PATH_USD_ADDRESS } from "../src/chain.js";
-import { createAgent, devnetPayer } from "../src/sdk.js";
+import { BudgetExceededError, createAgent, devnetPayer } from "../src/sdk.js";
 
 const RPC_URL = process.env.TEMPO_RPC_URL ?? "http://localhost:8545";
 const AGENT_SPEND_URL = process.env.AGENT_SPEND_URL ?? "http://localhost:3000";
@@ -105,6 +105,37 @@ async function main() {
 
   const [budget] = await agent.budgets();
   if (budget) console.log(`3. remaining budget (on-chain): ${Number(budget.remaining) / 1e6} ${budget.symbol}`);
+
+  // 4. Escalation: a purchase bigger than what's left. The SDK refuses before
+  //    anything is sent; the agent asks a human for more budget instead.
+  const big = {
+    to: VENDOR_DATA,
+    amount: 480_000_000n,
+    reason: "Annual license for the equities data feed (renewal due this week)",
+  };
+  try {
+    await agent.pay(big);
+  } catch (err) {
+    if (!(err instanceof BudgetExceededError)) throw err;
+    // Ask for the shortfall plus a cent of headroom: Tempo also debits the
+    // per-transaction fee from the same limit.
+    const shortfall = err.requested - err.remaining + 10_000n;
+    console.log(`4. ${Number(big.amount) / 1e6} pathUSD exceeds the remaining budget — nothing sent.`);
+    const req = await agent.requestApproval({ amount: shortfall, to: big.to, reason: big.reason });
+    console.log(`   requested +${Number(shortfall) / 1e6} pathUSD (request ${req.id.slice(0, 10)}…)`);
+    if (process.env.DEMO_NO_WAIT === "1") {
+      console.log(`   review it at ${AGENT_SPEND_URL}/approvals`);
+    } else {
+      console.log(`   → approve or deny it at ${AGENT_SPEND_URL}/approvals  (waiting up to 10 min; Ctrl+C to stop)`);
+      const decided = await agent.waitForApproval(req.id, { timeoutMs: 10 * 60_000, pollMs: 1_000 });
+      console.log(`5. request ${decided.status}${decided.note ? ` — ${decided.note}` : ""}`);
+      if (decided.status === "approved" && decided.txHash) {
+        const { txHash } = await agent.pay(big);
+        console.log(`   retried: paid ${Number(big.amount) / 1e6} pathUSD, tx ${txHash.slice(0, 10)}…`);
+        await rpc("dev_mine");
+      }
+    }
+  }
   console.log(`done — open ${AGENT_SPEND_URL}/activity to see each payment with its verified reason.`);
 }
 

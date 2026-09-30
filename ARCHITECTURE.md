@@ -129,10 +129,13 @@ gets spend-with-reason as a tool.
 
 1. **Indexer + dashboard** — visibility works even for agents provisioned by
    other tools; zero-integration adoption. *(done)*
-2. **Key lifecycle** — provision/edit/revoke agent keys.
+2. **Key lifecycle** — provision/edit/revoke agent keys. *(done: authorize,
+   set limit, revoke via an admin-key operator; allowlist scopes still open)*
 3. **Reasons SDK** — memo-linked reasons, MPP/MCP client. *(done: signed
    reason records, SDK, MCP server — MPP 402 auto-handling still open)*
-4. **Approvals** — escalation and root-key approval flow.
+4. **Approvals** — escalation and root-key approval flow. *(done: signed
+   limit-increase requests, on-chain approval via `updateSpendingLimit`;
+   one-shot scoped keys still open)*
 
 ## Open items
 

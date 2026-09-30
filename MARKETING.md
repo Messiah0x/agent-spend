@@ -44,6 +44,13 @@ ComfyUI is the visual production engine. Use it for high-quality supporting grap
 ## Marketing loop
 Product ships → CHANGELOG.md updated → identify story → create post → create visual if useful → publish on X → learn from response.
 
+## What's live (safe to market, as of 2026-09-30)
+- See every agent's spend and live on-chain budget, with no agent integration.
+- Every payment can explain itself: signed reasons, cryptographically linked to the on-chain payment and marked Verified.
+- Agents that hit their limit ask a human for more; approving raises the limit on-chain. One-click revoke.
+- Works with any MCP agent (Claude, etc.) via the Agent Spend MCP server.
+- Validated live on Tempo testnet (Moderato) for indexing + payments; control-plane actions demoed on the local fixture (live testnet validation of admin-key controls is next — don't claim it yet).
+
 ## Guardrails
 - No fake traction or metrics
 - No claiming unfinished features are available

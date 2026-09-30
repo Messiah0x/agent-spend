@@ -50,6 +50,32 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "request_approval",
+    description:
+      "Ask the humans overseeing this agent for more budget when a payment exceeds what's left. They review it on the " +
+      "Agent Spend dashboard; approval raises the on-chain limit. Returns a request id to check with check_approval.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        amount: { type: "string", description: 'Additional budget needed, in token units, e.g. "40.00"' },
+        reason: { type: "string", description: "What the money is for and why it's needed now (max 500 characters)" },
+        to: { type: "string", description: "Optional: intended recipient address" },
+      },
+      required: ["amount", "reason"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "check_approval",
+    description: "Check the status of a budget request made with request_approval.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Request id returned by request_approval" } },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 function text(t: string, isError = false): ToolResult {
@@ -100,6 +126,32 @@ export function createMcpHandler(agent: Agent, extraTools: { name: string; descr
           context: Object.keys(context).length ? context : undefined,
         });
         return text(`Paid ${fmt(amount)} to ${args.to}.\ntx: ${txHash}\nreason memo: ${memo}`);
+      }
+      if (name === "request_approval") {
+        if (typeof args.reason !== "string" || !args.reason.trim()) return text("`reason` is required", true);
+        if (args.to !== undefined && (typeof args.to !== "string" || !isAddress(args.to, { strict: false }))) {
+          return text("`to` must be a 0x address", true);
+        }
+        const amount = parseAmount(args.amount);
+        const res = await agent.requestApproval({
+          amount,
+          reason: args.reason,
+          to: typeof args.to === "string" ? (getAddress(args.to) as Address) : undefined,
+        });
+        return text(`Budget request submitted (status: ${res.status}). id: ${res.id}\nA human will review it; check back with check_approval.`);
+      }
+      if (name === "check_approval") {
+        if (typeof args.id !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(args.id)) return text("`id` must be a request id", true);
+        const s = await agent.approval(args.id as Hex);
+        const detail =
+          s.status === "approved"
+            ? ` New limit ${s.newLimit ? fmt(BigInt(s.newLimit)) : "?"} is live on-chain${s.txHash ? ` (tx ${s.txHash})` : ""}. You can retry the payment.`
+            : s.status === "denied"
+              ? ` Denied${s.note ? `: ${s.note}` : ""}. Do not retry this payment.`
+              : s.status === "pending"
+                ? " Still waiting for a human."
+                : "";
+        return text(`Request ${s.id}: ${s.status}.${detail}`);
       }
       const extra = extraTools.find((t) => t.name === name);
       if (extra) return await extra.run(args);

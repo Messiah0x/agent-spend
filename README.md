@@ -47,130 +47,142 @@ The agent can independently make legitimate purchases during the month. Each pay
 
 This creates a model where **humans define the financial boundaries and agents operate autonomously inside them**.
 
-## Current MVP
+## What works today
 
-The current MVP proves the core monitoring and control model. It consists of a persistent indexer and a web dashboard that watch configured Tempo accounts.
+Agent Spend is a working, tested product on Tempo — the full loop of **provision → spend with a reason → observe → escalate → approve on-chain → revoke**:
 
-Today it can:
+| | |
+|---|---|
+| **Observe** | Discovers every agent access key on watched accounts; live remaining budgets (read from the chain, never cached) with %-of-limit bars; total spend, payment count, per-agent burn rate, runway, 30-day spend chart and top recipients; full key-policy history. No agent integration required. |
+| **Explain** | Every payment can carry a **signed reason**. The reason record's hash is the on-chain memo, so each payment shows *why* it happened — marked **Verified** when the chain's payment matches what the agent signed, **Mismatch** when it doesn't — with a per-payment proof page anyone can check. |
+| **Control** | From the dashboard: authorize a new agent with a native Tempo spending limit, change a limit, or revoke a key (kill switch). Each is a real AccountKeychain transaction, logged in an operator audit trail. |
+| **Escalate** | An agent that hits its limit asks for more budget (signed request). The owner gets a webhook, reviews it on **Approvals**, and approving raises the limit **on-chain** — the agent's retry then succeeds. Denials carry a note back to the agent. |
+| **Alert** | "Needs attention" on the Overview for low/exhausted budgets and pending requests; optional Slack-compatible webhook alerts, sent once per budget period. |
+| **Integrate** | TypeScript Agent SDK (`agent.pay(...)` with a live-budget pre-check), an **MCP server** so any MCP agent can pay with a reason and request budget, and a JSON API. |
 
-- discover authorized agent access keys;
-- monitor agent spending on Tempo;
-- display live remaining budgets;
-- show total spend and payment counts;
-- associate payments with the agent that made them;
-- show payment amount, recipient, memo, and transaction context;
-- track key authorization, revocation, and spending-limit changes;
-- assign human-readable names to agent access keys;
-- persist indexed activity locally in SQLite;
-- recover safely after restarts without duplicating indexed events;
-- run continuously as a deployed service.
-
-This MVP is deliberately focused. It demonstrates that an operator can watch an account and automatically obtain an understandable view of agent financial activity without modifying the agent itself.
-
-## Where this can go
-
-Agent Spend can grow from a monitoring dashboard into a broader financial operations layer for autonomous software. Potential extensions include creating and modifying agent spending policies from the interface, approval workflows for exceptional purchases, alerts and notifications, richer agent identities, organization/team accounts, analytics, category-level budgets, merchant controls, recurring allowances, multi-agent treasury management, and APIs that let agent platforms provision financial permissions programmatically.
-
-The broader vision is simple: as AI agents move from generating information to taking economic actions, they need financial infrastructure designed for machine autonomy. Agent Spend aims to provide the human control, visibility, and accountability layer around that infrastructure.
+Everything persists in SQLite, survives restarts without duplicating events, recovers from chain reorgs, and runs as a single deployed process (Railway).
 
 ## Architecture
 
 Tempo's AccountKeychain enforces agent spending policy on-chain (per-key budgets, periodic limits, recipient allowlists). Agent Spend is the management layer on top: **visibility, transaction context, and human control**. See [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-The application has two primary pieces:
+- **Indexer** (`src/indexer.ts`) — polls `eth_getLogs` for `AccessKeySpend`, `KeyAuthorized`, `KeyRevoked`, `SpendingLimitUpdated` on the AccountKeychain precompile, plus `Transfer`/`TransferWithMemo` on configured TIP-20 tokens. Atomic per-range writes, idempotent, reorg-aware.
+- **Dashboard** (`src/server.ts`) — server-rendered, no client framework: Overview, Agent pages, Activity, Payment proof, Approvals, Keys.
+- **Reasons ledger** (`src/reasons.ts`) — reason records, canonical hashing, verification against indexed payments.
+- **Approvals** (`src/approvals.ts`) — signed budget requests; approval executes `updateSpendingLimit`.
+- **Operator writer** (`src/writer.ts`) — submits control transactions with an **admin access key** (TIP-1049), so the root key never touches the server. Optional: without it, on-chain state is read-only from the dashboard.
+- **Agent API / SDK / MCP** (`src/api.ts`, `src/sdk.ts`, `src/mcp.ts`) — agents authenticate by signing with their own access key: no shared API secrets.
 
-- **Indexer** — polls `eth_getLogs` for `AccessKeySpend`, `KeyAuthorized`, `KeyRevoked`, and `SpendingLimitUpdated` on the AccountKeychain precompile, plus `Transfer`/`TransferWithMemo` on configured TIP-20 tokens. Relevant activity is stored in SQLite. The indexer is restart-safe and idempotent.
-- **Dashboard** — a server-rendered web interface showing agents, payments, remaining budgets, transaction context, and key-policy history. Remaining budgets are read live from `getRemainingLimitWithPeriod` rather than relying on a cached approximation.
-
-## Quickstart (local demo)
-
-Three terminals:
+## Quickstart (local demo, 2 terminals)
 
 ```sh
 npm install
 
-# 1. Local Tempo dev fixture (emits the real precompile events)
-npm run devnet
+# 1. Devnet fixture + dashboard (with on-chain controls wired to the fixture)
+npm run demo:stack            # → http://localhost:3000   admin: demo / demo-password
 
-# 2. Dashboard + indexer → http://localhost:3000
-WATCHED_ACCOUNTS=0x1111111111111111111111111111111111111111 \
-TEMPO_RPC_URL=http://localhost:8545 CONFIRMATIONS=0 npm run dev
-
-# 3. Simulated agent: authorizes a key with a 500 pathUSD/month budget,
-#    then pays through the Agent SDK — each payment carries a signed reason
+# 2. Demo agent: gets a 500 pathUSD/month key, makes three payments with
+#    signed reasons, then tries a 480 pathUSD purchase it can't afford and
+#    asks for more budget.
 npm run demo
 ```
 
-Open http://localhost:3000 — the agent, its payments, and its live remaining budget are on the Overview and Activity pages. Click a reason to see its proof (record hash = on-chain memo, signer = the agent's key).
+Then, in the browser:
+
+1. **Overview** — the agent, its live budget bar, and "1 budget request awaiting review".
+2. **Activity** — each payment with its reason and a **Verified** badge; click one for the proof (record hash = on-chain memo, signer = the agent's key).
+3. **Approvals** — approve the request (log in as `demo` / `demo-password`). The limit is raised on-chain; the waiting demo agent retries and the 480 pathUSD payment goes through.
+4. **Agent page** — burn rate, runway, spend chart, controls (set limit, **Revoke key**), and the audit trail of what you just did.
+
+Prefer separate processes? `npm run devnet` + `WATCHED_ACCOUNTS=0x1111111111111111111111111111111111111111 TEMPO_RPC_URL=http://localhost:8545 CONFIRMATIONS=0 OPERATOR_MODE=devnet ADMIN_USER=demo ADMIN_PASSWORD=demo-password npm run dev` + `npm run demo`.
 
 ## Against Tempo testnet (Moderato)
 
 ```sh
-WATCHED_ACCOUNTS=<your account address> npm run dev
+WATCHED_ACCOUNTS=<your root account> npm run dev
 ```
 
-Defaults (verified against the [tempoxyz/tempo](https://github.com/tempoxyz/tempo) sources):
+To see real payments with reasons: `AGENT_SPEND_URL=http://localhost:3000 npm run live-agent` (funds a fresh testnet account from the faucet, authorizes a 500 pathUSD/30-day agent key, and pays through the SDK). Validated live on Moderato; see CHANGELOG.
+
+To enable on-chain controls, authorize an admin access key for the account and set `OPERATOR_MODE=admin`, `OPERATOR_PRIVATE_KEY=<admin key>`. New agents generate their own keys locally with `npm run new-agent-key` — only the address is given to the dashboard.
+
+### Configuration
+
+All settings are environment variables (see [`.env.example`](./.env.example)). Defaults verified against the [tempoxyz/tempo](https://github.com/tempoxyz/tempo) sources.
 
 | Setting | Default |
 |---|---|
+| `WATCHED_ACCOUNTS` | **required** — comma-separated root accounts |
 | `TEMPO_RPC_URL` | `https://rpc.moderato.tempo.xyz` |
 | `TEMPO_CHAIN_ID` | `42431` (Moderato testnet; mainnet "Presto" is `4217`) |
 | `TOKENS` | `0x20C0000000000000000000000000000000000000:pathUSD` |
-| `START_BLOCK` | `0` |
-| `CONFIRMATIONS` | `2` |
-| `DB_PATH` | `./data/agent-spend.db` |
-| `PORT` | `3000` |
+| `START_BLOCK` / `CONFIRMATIONS` | `0` / `2` |
+| `DB_PATH` / `PORT` | `./data/agent-spend.db` / `3000` |
 | `EXPLORER_URL` | unset (tx links off) |
-| `ADMIN_USER` / `ADMIN_PASSWORD` | unset — see below |
-| `PUBLIC_URL` | unset — public origin (e.g. `https://…up.railway.app`), accepted for CSRF origin checks |
-| `TRUST_PROXY` | unset — set `1` behind a reverse proxy (Railway) so rate limits key on `X-Forwarded-For` |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | unset — **all dashboard writes fail closed (503) until both are set** |
+| `PUBLIC_URL` | unset — public origin, used for CSRF checks and links in notifications |
+| `TRUST_PROXY` | unset — set `1` behind a reverse proxy (Railway) so rate limits use `X-Forwarded-For` |
+| `OPERATOR_MODE` | unset (controls off) — `admin` (recommended), `root` (testnet only), `devnet` (local only) |
+| `OPERATOR_ACCOUNT` / `OPERATOR_PRIVATE_KEY` | account the operator controls (defaults to the only watched account) / its key |
+| `ALERT_THRESHOLD_PCT` | `20` — "low budget" below this % of the limit |
+| `WEBHOOK_URL` | unset — https webhook (Slack-compatible `{text}`) for approval requests and budget alerts |
 
 AccountKeychain precompile: `0xaAAAaaAA00000000000000000000000000000000`.
 
-### Protecting agent naming on a public deployment
+## Security model
 
-The dashboard itself is read-only and meant to be viewed freely. Naming/renaming an agent (`POST /agents/:account/:keyId/label`) is the one write route, and it's guarded by HTTP Basic Auth: set both `ADMIN_USER` and `ADMIN_PASSWORD` to enable it. **Until both are set, that route fails closed (503)** — it does not fall back to being open.
+- **Tempo is the enforcement boundary.** Limits are native AccountKeychain spending limits; every control action (authorize, set limit, revoke, approve) is an on-chain transaction. A compromised Agent Spend server can't let an agent spend beyond what the chain allows, and holds no root key in the recommended `admin` operator mode.
+- **Agents authenticate by signature.** Reason records and budget requests are EIP-191-signed by the agent's own access key and accepted only from keys the watched account has authorized on-chain and not revoked. No shared API secrets exist to leak.
+- **Operator writes** (naming, controls, approvals) require HTTP Basic Auth and **fail closed** until `ADMIN_USER`/`ADMIN_PASSWORD` are set. Approvals are claimed atomically, so a double-submit can't execute twice; decisions and on-chain writes go to an audit log.
+- **Web hardening:** strict CSP with per-request nonces (no inline styles/scripts without it, no third-party origins, no framing); same-origin CSRF checks on every form post; `nosniff`, `no-referrer`, HSTS over HTTPS; 16 KB body cap; per-IP rate limits on writes; strict validation of every address, amount and record field; no open redirects; flash messages are fixed strings, never URL text; all output HTML-escaped; webhook text Slack-escaped; errors never echo RPC URLs (which can carry provider API keys).
+- **Honest limits:** Basic Auth is one shared operator credential, not multi-user auth. Only secp256k1 agent keys can sign API requests today (P256/WebAuthn keys can still pay; their payments just appear without a signed reason).
 
-This is deliberately not a full authentication system: it is one shared credential for a single operator, applied only to that route; every other page stays public with no login.
-
-### Hardening
-
-Every response carries a strict Content-Security-Policy (per-request nonce, no third-party origins, no framing) plus `nosniff`, `Referrer-Policy: no-referrer`, and HSTS over HTTPS. Browser form posts must be same-origin (CSRF protection — Basic Auth credentials are sent automatically by browsers, so this matters). Bodies are capped at 16 KB, write routes are rate-limited per client IP, route addresses are validated, and `/healthz` never exposes RPC details (provider URLs can embed API keys).
-
-## Reasons ledger, Agent SDK, and MCP
-
-Every payment can say **why**. The agent builds a small reason record (who pays, which key, token, recipient, amount, the reason text, optional MPP context like `externalId`, and a random nonce), signs its keccak256 hash with its own access key, registers it with Agent Spend, and pays with `transferWithMemo` carrying that same hash as the memo.
-
-- The dashboard joins each on-chain payment to its reason by memo and checks the payment the chain recorded against what the record describes: **Verified** when payer, key, token, recipient and amount all match, **Mismatch** (with the differences listed) when they don't.
-- Anyone can verify independently: `GET /api/v1/reasons/:memo` returns the record; re-hash its canonical JSON and compare to the on-chain memo.
-- Agent writes need no shared secret: requests are signed by the agent's access key and accepted only from keys the watched account has actually authorized on-chain and not revoked.
-
-**Agent SDK** (`src/sdk.ts`):
+## Agent SDK, MCP, and API
 
 ```ts
-import { createAgent } from "./src/sdk.js";
+import { createAgent, BudgetExceededError } from "./src/sdk.js";
 
 const agent = createAgent({ baseUrl: "https://your-agent-spend", account: ROOT_ACCOUNT, privateKey: AGENT_KEY });
-await agent.pay({ to: VENDOR, amount: 12_500_000n, reason: "LLM credits, batch #4821", context: { externalId: "inv_4821" } });
+
+try {
+  await agent.pay({ to: VENDOR, amount: 12_500_000n, reason: "LLM credits, batch #4821", context: { externalId: "inv_4821" } });
+} catch (err) {
+  if (err instanceof BudgetExceededError) {
+    const req = await agent.requestApproval({ amount: err.requested - err.remaining, reason: "Batch #4822 needs more credits" });
+    const decision = await agent.waitForApproval(req.id); // "approved" → the on-chain limit was raised
+  }
+}
 ```
 
-`pay` pre-checks the live on-chain budget (throws `BudgetExceededError` before sending anything), registers the signed reason, then pays. The agent holds only its own access key; Tempo enforces the limit.
+`pay` pre-checks the live on-chain budget (throws `BudgetExceededError` before sending anything), registers the signed reason, then pays with `transferWithMemo`. The agent holds only its own access key.
 
-**MCP server** (`npm run mcp`): exposes `get_budget` and `pay` as MCP tools over stdio, so any MCP-capable agent (Claude Code, Claude Desktop, …) can spend with a reason. Configure with `AGENT_SPEND_URL`, `AGENT_ACCOUNT`, `AGENT_PRIVATE_KEY` (+ `TEMPO_RPC_URL`; `AGENT_SPEND_DEVNET=1` for the local fixture).
+**MCP server** — `npm run mcp` exposes `get_budget`, `pay`, `request_approval`, and `check_approval` over stdio, so any MCP-capable agent (Claude Code, Claude Desktop, …) can spend with a reason and ask a human for more. Env: `AGENT_SPEND_URL`, `AGENT_ACCOUNT`, `AGENT_PRIVATE_KEY`, `TEMPO_RPC_URL` (`AGENT_SPEND_DEVNET=1` for the local fixture). Example Claude Code config:
 
-**JSON API** (`/api/v1`, reads public like the dashboard):
+```json
+{ "mcpServers": { "agent-spend": { "command": "npx", "args": ["tsx", "src/mcp.ts"],
+  "env": { "AGENT_SPEND_URL": "http://localhost:3000", "AGENT_ACCOUNT": "0x…", "AGENT_PRIVATE_KEY": "0x…" } } } }
+```
+
+**JSON API** (`/api/v1`; reads are public like the dashboard, writes are agent-signed):
 
 | Route | Purpose |
 |---|---|
-| `GET /agents` | All agent keys: name, status, total spent, live budgets |
-| `GET /agents/:account/:keyId` | One agent |
+| `GET /agents` · `GET /agents/:account/:keyId` | Agents: name, status, spend, live budgets |
 | `GET /payments?account=&keyId=&limit=` | Payments with reason + verdict |
 | `GET /reasons/:memo` | Reason record, signature, matching payment, verdict |
-| `POST /reasons` | Agent-signed: register a reason (`{ record, signature }`) → `{ memo }` |
+| `POST /reasons` | Register a reason: `{ record, signature }` → `{ memo }` |
+| `GET /approvals?status=&keyId=` · `GET /approvals/:id` | Budget requests and their status |
+| `POST /approvals` | Request more budget: `{ request, signature }` → `{ id, status }` |
+
+## Where this goes next
+
+MPP 402 auto-handling in the SDK, one-time payment keys scoped to a single approved purchase (short expiry, recipient allowlist), recipient-allowlist management from the UI, multi-user auth with roles, per-category budgets, and analytics across agent fleets.
 
 ## Test
 
 ```sh
-npm test          # end-to-end: agent pays → dashboard shows it
+npm test          # 71 end-to-end tests against the devnet fixture
 npm run typecheck
 ```
+
+Suites: `e2e` (agent pays → dashboard), `hardening` (headers, CSRF, XSS, reorgs, feed classification), `reasons` (signed reasons, verification, API auth, MCP), `controls` (escalation → on-chain approval → retry, revoke/limit/authorize, alerts, redirect safety). CI runs both on every PR.
