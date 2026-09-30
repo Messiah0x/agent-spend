@@ -50,12 +50,12 @@ export interface Config {
 }
 
 function parseOperator(env: NodeJS.ProcessEnv, watched: Address[], rpcUrl: string): Config["operator"] {
-  const mode = env.OPERATOR_MODE;
+  const mode = envValue(env, "OPERATOR_MODE");
   if (!mode) return undefined;
   if (mode !== "admin" && mode !== "root" && mode !== "devnet") {
     throw new Error(`OPERATOR_MODE must be admin, root, or devnet, got: ${mode}`);
   }
-  const rawAccount = env.OPERATOR_ACCOUNT ?? (watched.length === 1 ? watched[0] : undefined);
+  const rawAccount = envValue(env, "OPERATOR_ACCOUNT") ?? (watched.length === 1 ? watched[0] : undefined);
   if (!rawAccount || !isAddress(rawAccount)) {
     throw new Error("OPERATOR_ACCOUNT must be set to one of WATCHED_ACCOUNTS");
   }
@@ -74,15 +74,21 @@ function parseOperator(env: NodeJS.ProcessEnv, watched: Address[], rpcUrl: strin
   return { mode, account, privateKey: pk as `0x${string}` };
 }
 
+/** An env var's value, treating empty/whitespace-only as unset (hosting dashboards often leave blanks). */
+function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const v = env[name]?.trim();
+  return v ? v : undefined;
+}
+
 function intEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): number {
-  const raw = env[name] ?? fallback;
+  const raw = envValue(env, name) ?? fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 0) throw new Error(`${name} must be a non-negative integer, got: ${raw}`);
   return n;
 }
 
 function bigEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): bigint {
-  const raw = env[name] ?? fallback;
+  const raw = envValue(env, name) ?? fallback;
   if (!/^\d+$/.test(raw)) throw new Error(`${name} must be a non-negative integer, got: ${raw}`);
   return BigInt(raw);
 }
@@ -133,14 +139,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
   const config: Config = {
-    rpcUrl: env.TEMPO_RPC_URL ?? MODERATO_RPC_URL,
+    rpcUrl: envValue(env, "TEMPO_RPC_URL") ?? MODERATO_RPC_URL,
     chainId: intEnv(env, "TEMPO_CHAIN_ID", String(MODERATO_CHAIN_ID)),
     watchedAccounts: parseAccounts(accounts),
-    tokens: parseTokens(env.TOKENS ?? `${PATH_USD_ADDRESS}:pathUSD`),
+    tokens: parseTokens(envValue(env, "TOKENS") ?? `${PATH_USD_ADDRESS}:pathUSD`),
     startBlock: bigEnv(env, "START_BLOCK", "0"),
     confirmations: bigEnv(env, "CONFIRMATIONS", "2"),
     pollIntervalMs: intEnv(env, "POLL_INTERVAL_MS", "2000"),
-    dbPath: env.DB_PATH ?? "./data/agent-spend.db",
+    dbPath: envValue(env, "DB_PATH") ?? "./data/agent-spend.db",
     port: intEnv(env, "PORT", "3000"),
     explorerUrl: env.EXPLORER_URL || undefined,
     adminUser: env.ADMIN_USER || undefined,
