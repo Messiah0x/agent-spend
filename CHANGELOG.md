@@ -18,6 +18,11 @@ This is the shared handoff log for the AI team. Add concise entries when meaning
 - ComfyUI assigned as visual production engine.
 - Initial positioning: “Spend management for AI agents.”
 
+### 2026-09-30 — Claude — Dark mode
+- Dashboard follows the phone/OS light-or-dark setting automatically; a toggle (header on desktop, footer on phones) cycles Auto → Light → Dark and remembers the choice per browser. No flash on load (theme applied in <head>), CSP-compliant (nonce'd scripts, no inline styles).
+- All colors now come from theme tokens, so every page, badge, bar, chart and form works in both themes. Phone header no longer crowds out the Keys tab.
+- Live at https://agent-spend-production.up.railway.app once merged.
+
 ### 2026-09-30 — Claude — Control plane: on-chain key controls, approvals, alerts, agent pages
 - Key controls from the dashboard — authorize a new agent (native Tempo spending limit, period, expiry), set a limit, revoke (kill switch). Each is a real AccountKeychain transaction submitted by an optional operator key (`OPERATOR_MODE=admin` uses an admin access key, so the root key never lives on the server). Every action is in an operator audit log.
 - Approvals: an agent that hits its limit sends a signed budget request (SDK `requestApproval`, MCP `request_approval`); the owner is notified by webhook, reviews it on the new **Approvals** page, and approving raises the limit on-chain. Double-submits can't execute twice; expired (7d) requests can't be approved; denials carry a note back to the agent.

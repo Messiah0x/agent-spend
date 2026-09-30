@@ -65,6 +65,21 @@ describe("security headers", () => {
     expect(res.headers.get("x-frame-options")).toBe("DENY");
   });
 
+  it("ships dark mode: system-following tokens, a forced override, and a nonce'd theme script", async () => {
+    const res = await app.request("/");
+    const nonce = /'nonce-([^']+)'/.exec(res.headers.get("content-security-policy")!)![1]!;
+    const html = await res.text();
+    expect(html).toContain("@media (prefers-color-scheme: dark)");
+    expect(html).toContain(':root[data-theme="dark"]');
+    expect(html).toContain('class="theme-toggle"');
+    // Every inline script carries the nonce, or the CSP would block the theme switch.
+    const scripts = html.match(/<script[^>]*>/g)!;
+    expect(scripts.length).toBeGreaterThanOrEqual(2);
+    for (const tag of scripts) expect(tag).toBe(`<script nonce="${nonce}">`);
+    // No inline style attributes (the CSP would block them).
+    expect(html).not.toMatch(/\sstyle="/);
+  });
+
   it("uses a fresh nonce per request", async () => {
     const a = (await app.request("/")).headers.get("content-security-policy");
     const b = (await app.request("/")).headers.get("content-security-policy");
