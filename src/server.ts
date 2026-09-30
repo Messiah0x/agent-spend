@@ -2,25 +2,24 @@ import { Hono, type Context } from "hono";
 import { basicAuth } from "hono/basic-auth";
 import { isAddress, type Address } from "viem";
 import type { Config } from "./config.js";
-import type { Db, KeyRow, PaymentRow, KeyEventRow } from "./db.js";
+import type { Db, PaymentRow, KeyEventRow } from "./db.js";
+import { keyStatus } from "./keys.js";
 import type { Indexer } from "./indexer.js";
 import type { Reader } from "./reads.js";
 import {
   formatAmount,
+  formatSmallAmount,
   formatTime,
   relativeTime,
   shortAddress,
   shortHash,
   shortMemo,
 } from "./format.js";
+import { createApi, enrichPayments, type EnrichedPayment } from "./api.js";
+import { canonicalJson, recoverSigner } from "./reasons.js";
 import { csrfProtection, limitBody, rateLimit, securityHeaders } from "./security.js";
 import { layout, statusBadge, emptyState, escapeHtml, dataTable, type NavContext } from "./ui.js";
 
-function keyStatus(k: KeyRow, now = Math.floor(Date.now() / 1000)) {
-  if (k.revoked_block !== null) return "revoked" as const;
-  if (k.expiry !== 0 && k.expiry < now) return "expired" as const;
-  return "active" as const;
-}
 
 function txCell(txHash: string, explorerUrl?: string): string {
   const label = `<span class="mono">${escapeHtml(shortHash(txHash))}</span>`;
@@ -48,6 +47,39 @@ function agentLabelForm(account: string, keyId: string, current: string | undefi
   </form>`;
 }
 
+function verdictBadge(verdict: EnrichedPayment["verdict"]): string {
+  if (verdict === "verified") {
+    return `<span class="badge badge-active" title="The on-chain payment matches the signed reason record exactly"><span class="dot"></span>Verified</span>`;
+  }
+  if (verdict === "mismatch") {
+    return `<span class="badge badge-revoked" title="The on-chain payment differs from what the agent's signed reason describes"><span class="dot"></span>Mismatch</span>`;
+  }
+  return "";
+}
+
+function recipientCell(p: EnrichedPayment): string {
+  if (p.kind === "payment" && p.to_addr) return `<span class="mono">${escapeHtml(shortAddress(p.to_addr))}</span>`;
+  if (p.kind === "fee") {
+    return `<span class="chip chip-fee" title="Per-transaction fee debited from this key's spending limit">network fee</span>`;
+  }
+  return `<span class="chip chip-fee" title="Budget debit with no matching token transfer">other debit</span>`;
+}
+
+/** Reason text (linked to the payment's proof page) or the raw memo chip when none is on file. */
+function reasonCell(p: EnrichedPayment): string {
+  if (p.kind !== "payment") return `<span class="muted">—</span>`;
+  const href = `/payments/${escapeHtml(p.tx_hash)}`;
+  if (p.reason) {
+    const text = p.reason.record.reason;
+    const short = text.length > 90 ? `${text.slice(0, 87)}…` : text;
+    return `<div class="reason-cell"><a class="reason-link" href="${href}" title="${escapeHtml(text)}">${escapeHtml(short)}</a> ${verdictBadge(p.verdict)}</div>`;
+  }
+  const memo = shortMemo(p.memo);
+  return memo
+    ? `<a href="${href}" class="chip" title="${escapeHtml(p.memo!)} — no reason on file">${escapeHtml(memo)}</a>`
+    : `<a href="${href}" class="muted">no memo</a>`;
+}
+
 /** Route params that name an account/key must be addresses — reject anything else early. */
 function addressParams(c: Context): { account: string; keyId: string } | null {
   const { account, keyId } = c.req.param() as { account?: string; keyId?: string };
@@ -70,6 +102,8 @@ export function createServer(config: Config, db: Db, reader: Reader, indexer?: I
 
   const amountHtml = (baseUnits: string | bigint, token: string, sign = "") =>
     `<span class="amount">${sign}${formatAmount(baseUnits)}<span class="sym">${escapeHtml(symbolFor(token))}</span></span>`;
+  const feeHtml = (baseUnits: string | bigint, token: string) =>
+    `<span class="amount">${formatSmallAmount(baseUnits)}<span class="sym">${escapeHtml(symbolFor(token))}</span></span>`;
 
   // ── Hardening (applies to every route) ────────────────────────────────────
   app.use("*", securityHeaders());
@@ -188,26 +222,28 @@ export function createServer(config: Config, db: Db, reader: Reader, indexer?: I
 
   // ── Activity ──────────────────────────────────────────────────────────────
   app.get("/activity", (c) => {
-    const payments: PaymentRow[] = db.listPayments({ limit: 200 });
+    const all = enrichPayments(db, db.listPayments({ limit: 300 }));
+    // Fold each per-tx fee debit into its payment's row (shown as a sub-line),
+    // so the feed reads as one row per payment.
+    const feesByTx = new Map<string, bigint>();
+    for (const p of all) {
+      if (p.kind === "fee") feesByTx.set(p.tx_hash, (feesByTx.get(p.tx_hash) ?? 0n) + BigInt(p.amount));
+    }
+    const payments = all.filter((p) => p.kind !== "fee").slice(0, 200);
     const labels = db.listLabels();
-    const rows = payments.map((p) => {
-      const memo = shortMemo(p.memo);
-      const recipient =
-        p.kind === "payment" && p.to_addr
-          ? `<span class="mono">${escapeHtml(shortAddress(p.to_addr))}</span>`
-          : p.kind === "fee"
-            ? `<span class="chip chip-fee" title="Per-transaction fee debited from this key's spending limit">network fee</span>`
-            : `<span class="chip chip-fee" title="Budget debit with no matching token transfer">other debit</span>`;
-      return [
-        `<span class="secondary">${escapeHtml(formatTime(p.block_time))}</span>`,
-        agentCell(labels, p.account, p.key_id),
-        amountHtml(p.amount, p.token, "−"),
-        recipient,
-        memo ? `<span class="chip" title="${escapeHtml(p.memo!)}">${escapeHtml(memo)}</span>` : `<span class="muted">—</span>`,
-        amountHtml(p.remaining, p.token),
-        txCell(p.tx_hash, config.explorerUrl),
-      ];
-    });
+    const rows = payments.map((p) => [
+      `<span class="secondary">${escapeHtml(formatTime(p.block_time))}</span>`,
+      agentCell(labels, p.account, p.key_id),
+      `<div>${amountHtml(p.amount, p.token, "−")}${
+        feesByTx.has(p.tx_hash)
+          ? `<div class="sub" title="Per-transaction fee, also debited from this key's spending limit">+ ${escapeHtml(formatSmallAmount(feesByTx.get(p.tx_hash)!))} fee</div>`
+          : ""
+      }</div>`,
+      recipientCell(p),
+      reasonCell(p),
+      amountHtml(p.remaining, p.token),
+      txCell(p.tx_hash, config.explorerUrl),
+    ]);
 
     const table = payments.length
       ? dataTable(
@@ -216,7 +252,7 @@ export function createServer(config: Config, db: Db, reader: Reader, indexer?: I
             { label: "Agent" },
             { label: "Amount", num: true },
             { label: "Recipient" },
-            { label: "Memo" },
+            { label: "Reason" },
             { label: "Remaining after", num: true },
             { label: "Transaction" },
           ],
@@ -227,12 +263,79 @@ export function createServer(config: Config, db: Db, reader: Reader, indexer?: I
 
     const body = `
       <h1 class="page-title">Activity</h1>
-      <p class="page-sub">Every access-key budget debit, joined with its on-chain transfer.</p>
+      <p class="page-sub">Every access-key budget debit, joined with its on-chain transfer and the agent's stated reason.</p>
       <div class="card">
         <div class="card-head"><span class="card-title">Payments</span><span class="card-note">most recent first</span></div>
         ${table}
       </div>`;
     return page(c, "Activity", "activity", body);
+  });
+
+  // ── Payment detail: the full reason record and its proof ──────────────────
+  app.get("/payments/:txHash", async (c) => {
+    const txHash = c.req.param("txHash");
+    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return c.text("Invalid transaction hash", 400);
+    const debits = enrichPayments(db, db.listPayments({ txHash, limit: 20 }));
+    if (!debits.length) {
+      return page(c, "Payment", "activity", emptyState("Payment not found", "No indexed agent debit in that transaction."), 404);
+    }
+    const labels = db.listLabels();
+    const p = debits.find((d) => d.kind === "payment") ?? debits[0]!;
+    const fee = debits.filter((d) => d.kind === "fee").reduce((sum, d) => sum + BigInt(d.amount), 0n);
+    const signer = p.reason ? await recoverSigner(p.reason.memo as `0x${string}`, p.reason.signature) : null;
+
+    const facts: [string, string][] = [
+      ["Agent", agentCell(labels, p.account, p.key_id)],
+      ["Account", `<span class="mono wrap">${escapeHtml(p.account)}</span>`],
+      ["Amount", amountHtml(p.amount, p.token)],
+      ...(fee > 0n ? ([["Network fee (from budget)", feeHtml(fee, p.token)]] as [string, string][]) : []),
+      ["Recipient", p.to_addr ? `<span class="mono wrap">${escapeHtml(p.to_addr)}</span>` : `<span class="muted">—</span>`],
+      ["Remaining after", amountHtml(p.remaining, p.token)],
+      ["Time", escapeHtml(formatTime(p.block_time))],
+      ["Block", String(p.block_number)],
+      ["Transaction", `${txCell(p.tx_hash, config.explorerUrl)}<div class="sub mono wrap">${escapeHtml(p.tx_hash)}</div>`],
+      ["Memo", p.memo ? `<span class="mono wrap">${escapeHtml(p.memo)}</span>` : `<span class="muted">none</span>`],
+    ];
+
+    let reasonHtml: string;
+    if (p.reason) {
+      const r = p.reason.record;
+      const ctx = r.context
+        ? Object.entries(r.context)
+            .map(([k, v]) => `<div class="sub">${escapeHtml(k)}: ${escapeHtml(String(v))}</div>`)
+            .join("")
+        : "";
+      reasonHtml = `
+        <div class="reason-quote">${escapeHtml(r.reason)}</div>${ctx}
+        <div class="proof">
+          ${verdictBadge(p.verdict)}
+          ${p.problems.length ? `<ul class="problems">${p.problems.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+          <dl class="facts">
+            <dt>Record hash (= on-chain memo)</dt><dd class="mono wrap">${escapeHtml(p.reason.memo)}</dd>
+            <dt>Signed by</dt><dd class="mono wrap">${signer ? escapeHtml(signer) : "unrecoverable"}${signer && signer.toLowerCase() === p.key_id ? ` <span class="muted">(this agent's access key)</span>` : ""}</dd>
+            <dt>Recorded</dt><dd>${escapeHtml(formatTime(p.reason.created_time))}</dd>
+          </dl>
+          <details><summary>Canonical record (keccak256 of this = memo)</summary><pre class="mono wrap">${escapeHtml(canonicalJson(r))}</pre></details>
+        </div>`;
+    } else if (p.memo && shortMemo(p.memo)) {
+      reasonHtml = emptyState("No reason on file", "This payment carries a memo, but no matching reason record was submitted to Agent Spend.");
+    } else {
+      reasonHtml = emptyState("No memo", "This payment was made without a memo, so it can't be linked to a reason.");
+    }
+
+    const body = `
+      <p class="crumb"><a href="/activity">← Activity</a></p>
+      <h1 class="page-title">Payment</h1>
+      <p class="page-sub">${escapeHtml(formatAmount(p.amount))} ${escapeHtml(symbolFor(p.token))} to ${escapeHtml(p.to_addr ? shortAddress(p.to_addr) : "—")}</p>
+      <div class="grid-2">
+        <div class="card"><div class="card-head"><span class="card-title">On-chain</span><span class="card-note">from indexed Tempo events</span></div>
+          <dl class="facts pad">${facts.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("")}</dl>
+        </div>
+        <div class="card"><div class="card-head"><span class="card-title">Reason</span><span class="card-note">signed by the agent, linked by memo</span></div>
+          <div class="pad">${reasonHtml}</div>
+        </div>
+      </div>`;
+    return page(c, "Payment", "activity", body);
   });
 
   // ── Keys ──────────────────────────────────────────────────────────────────
@@ -273,6 +376,9 @@ export function createServer(config: Config, db: Db, reader: Reader, indexer?: I
       </div>`;
     return page(c, "Keys", "keys", body);
   });
+
+  // ── Agent API (JSON) ──────────────────────────────────────────────────────
+  app.route("/api/v1", createApi(config, db, reader));
 
   // ── Agent identity ───────────────────────────────────────────────────────
   // Local to Agent Spend only: never touches Tempo or on-chain enforcement.

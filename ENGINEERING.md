@@ -24,6 +24,9 @@ Before coding, read PRODUCT.md and this file. Keep the implementation aligned wi
 - Hardening (2026-09-30): nonce-based CSP + security headers, same-origin CSRF checks on form posts, 16 KB body limit, per-IP rate limiting on writes, address validation on route params, graceful shutdown, `/healthz` reports indexer health without leaking the RPC URL.
 - Indexer (2026-09-30): each block range and its cursor commit in one SQLite transaction; undecodable logs are skipped with a warning instead of stalling the loop; reorg detection compares the stored hash of the last indexed block and rewinds 64 blocks on mismatch.
 - Activity feed (2026-09-30): each budget debit renders once — a memo transfer's duplicate `Transfer`/`TransferWithMemo` pair is collapsed (memo-bearing row preferred), and fee-only debits are labeled "network fee". The Payments stat counts payments only; Total spent still includes fees (it must reconcile with on-chain remaining).
+- Reasons ledger (2026-09-30): `src/reasons.ts` (record format, canonical JSON, keccak256 memo, strict validation, verification against the indexed payment), `reasons` table, `POST /api/v1/reasons` authenticated by the agent's own access-key signature (EIP-191 over the memo; key must be indexed, active, on a watched account; 1,000 records/key/day). Activity shows reason + Verified/Mismatch; `/payments/:txHash` shows the full proof. Only secp256k1 access keys can sign API requests today (P256/WebAuthn keys can still pay; their memos just show without a reason).
+- Agent SDK + MCP (2026-09-30): `src/sdk.ts` (`createAgent().pay/registerReason/budgets`, pluggable `Payer`: real Tempo via `viem/tempo`, or devnet) and `src/mcp.ts` (stdio MCP server, `get_budget`/`pay`). `scripts/demo-agent.ts` and (with `AGENT_SPEND_URL`) `scripts/live-agent.ts` pay through the SDK.
+- JSON API (2026-09-30): `/api/v1` agents/payments/reasons reads; JSON-only writes (415 otherwise; `text/plain` cross-site posts blocked by CSRF guard).
 - Mobile (2026-09-30): tables collapse into labeled stacked cards under 720px; auto-refresh pauses while a form is being edited.
 
 ## Immediate engineering milestone
@@ -71,7 +74,7 @@ remaining budget (482.50 pathUSD), matching the on-chain read. See CHANGELOG.md.
 - ~~Consider deeper reorg handling later.~~ Basic reorg detection + rewind done 2026-09-30.
 
 ## Do not build yet
-- Reasons ledger
+- ~~Reasons ledger~~ — built 2026-09-30 (live milestone met; scope unlocked)
 - Approval workflow
 - Full key provisioning UI
 - Multi-tenant auth

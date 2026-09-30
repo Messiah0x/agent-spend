@@ -21,7 +21,7 @@ Prove the full live flow on Tempo:
 ## Current priorities
 1. Live Tempo testnet validation — done, validated live on Moderato 2026-08-28
 2. Agent labels / identity — shipped (merged to main)
-3. Reasons ledger
+3. Reasons ledger — built 2026-09-30 (signed reasons, memo-linked, verified on the dashboard; Agent SDK + MCP server)
 4. Approval / escalation workflows
 5. Key lifecycle and provisioning UI
 6. Credit and yield later

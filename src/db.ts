@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import type { ReasonRecord } from "./reasons.js";
 
 export interface KeyRow {
   account: string;
@@ -102,6 +103,15 @@ const CLASSIFIED_SPENDS = `
     FROM joined j
   )`;
 
+export interface StoredReason {
+  memo: string;
+  account: string;
+  key_id: string;
+  record: ReasonRecord;
+  signature: string;
+  created_time: number;
+}
+
 export function openDb(path: string) {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
@@ -161,6 +171,15 @@ export function openDb(path: string) {
       new_limit TEXT NOT NULL,
       PRIMARY KEY (tx_hash, log_index)
     );
+    CREATE TABLE IF NOT EXISTS reasons (
+      memo TEXT PRIMARY KEY,
+      account TEXT NOT NULL,
+      key_id TEXT NOT NULL,
+      record_json TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      created_time INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reasons_key ON reasons (account, key_id, created_time DESC);
     CREATE TABLE IF NOT EXISTS agent_labels (
       account TEXT NOT NULL,
       key_id TEXT NOT NULL,
@@ -288,6 +307,56 @@ export function openDb(path: string) {
       return new Map(rows.map((r) => [`${r.account}|${r.key_id}`, r.label]));
     },
 
+    /** Store a signed reason record. Idempotent on memo; returns false if it already existed. */
+    insertReason(memo: string, record: ReasonRecord, signature: string): boolean {
+      const res = db
+        .prepare(
+          `INSERT OR IGNORE INTO reasons (memo, account, key_id, record_json, signature, created_time)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(memo.toLowerCase(), record.account, record.keyId, JSON.stringify(record), signature, Math.floor(Date.now() / 1000));
+      return res.changes > 0;
+    },
+    getReason(memo: string): StoredReason | null {
+      const row = db.prepare("SELECT * FROM reasons WHERE memo = ?").get(memo.toLowerCase()) as
+        | (Omit<StoredReason, "record"> & { record_json: string })
+        | undefined;
+      if (!row) return null;
+      const { record_json, ...rest } = row;
+      return { ...rest, record: JSON.parse(record_json) as ReasonRecord };
+    },
+    /** Reasons for many memos at once (lowercase memo → record). */
+    reasonsFor(memos: (string | null)[]): Map<string, StoredReason> {
+      const wanted = [...new Set(memos.filter((m): m is string => !!m).map((m) => m.toLowerCase()))];
+      const out = new Map<string, StoredReason>();
+      // Chunk to stay well under SQLite's bound-parameter limit.
+      for (let i = 0; i < wanted.length; i += 500) {
+        const chunk = wanted.slice(i, i + 500);
+        const rows = db
+          .prepare(`SELECT * FROM reasons WHERE memo IN (${chunk.map(() => "?").join(",")})`)
+          .all(...chunk) as (Omit<StoredReason, "record"> & { record_json: string })[];
+        for (const { record_json, ...rest } of rows) {
+          out.set(rest.memo, { ...rest, record: JSON.parse(record_json) as ReasonRecord });
+        }
+      }
+      return out;
+    },
+    /** Reasons a key submitted since `sinceUnix` (spam bound on the agent API). */
+    reasonCountSince(account: string, keyId: string, sinceUnix: number): number {
+      const row = db
+        .prepare("SELECT COUNT(*) AS n FROM reasons WHERE account = ? AND key_id = ? AND created_time >= ?")
+        .get(account.toLowerCase(), keyId.toLowerCase(), sinceUnix) as { n: number };
+      return row.n;
+    },
+    getKey(account: string, keyId: string): KeyRow | null {
+      return (
+        (db.prepare("SELECT * FROM keys WHERE account = ? AND key_id = ?").get(
+          account.toLowerCase(),
+          keyId.toLowerCase(),
+        ) as KeyRow | undefined) ?? null
+      );
+    },
+
     listKeys(): KeyRow[] {
       return db
         .prepare("SELECT * FROM keys ORDER BY authorized_block DESC")
@@ -299,7 +368,9 @@ export function openDb(path: string) {
      * transfer emits both `Transfer` and `TransferWithMemo`; the memo-bearing
      * one is preferred so each debit renders exactly once.
      */
-    listPayments(opts: { limit?: number; account?: string; keyId?: string } = {}): PaymentRow[] {
+    listPayments(
+      opts: { limit?: number; account?: string; keyId?: string; memo?: string; txHash?: string } = {},
+    ): PaymentRow[] {
       const { limit = 100 } = opts;
       const where: string[] = [];
       const params: (string | number)[] = [];
@@ -310,6 +381,14 @@ export function openDb(path: string) {
       if (opts.keyId) {
         where.push("m.key_id = ?");
         params.push(opts.keyId.toLowerCase());
+      }
+      if (opts.memo) {
+        where.push("lower(m.memo) = ?");
+        params.push(opts.memo.toLowerCase());
+      }
+      if (opts.txHash) {
+        where.push("m.tx_hash = ?");
+        params.push(opts.txHash.toLowerCase());
       }
       params.push(limit);
       return db

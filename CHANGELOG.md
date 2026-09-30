@@ -18,6 +18,15 @@ This is the shared handoff log for the AI team. Add concise entries when meaning
 - ComfyUI assigned as visual production engine.
 - Initial positioning: “Spend management for AI agents.”
 
+### 2026-09-30 — Claude — Reasons ledger, Agent SDK, MCP server, JSON API
+- Every payment can now carry a signed reason: the agent hashes a reason record (payer, key, token, recipient, amount, reason, optional MPP context, nonce), signs it with its access key, registers it, and pays with the hash as the memo. Activity shows the reason with a **Verified** badge (chain payment matches the record) or **Mismatch**; `/payments/:tx` shows the full proof.
+- Agent API authenticates by access-key signature — no shared secrets; only keys the account authorized on-chain (and hasn't revoked) can write.
+- Agent SDK (`createAgent().pay(...)`) with a live-budget pre-check, and an MCP server (`npm run mcp`) exposing `get_budget`/`pay` to any MCP agent.
+- Activity folds each per-tx fee into its payment row (`+ 0.005903 fee`) instead of a separate row; fees show real precision instead of `0.00`.
+- `npm run demo` now pays through the SDK; `live-agent` does too when `AGENT_SPEND_URL` is set.
+- New `test/reasons.test.ts`; 46 tests pass, typecheck clean.
+- Handoff: PR `claude/reasons-ledger` (stacked on `claude/hackathon-hardening`).
+
 ### 2026-09-30 — Claude — Hardening, Activity-feed cleanup, reorg handling, mobile
 - Security: nonce-based CSP and security headers on every response, same-origin CSRF check on form posts (Basic Auth is auto-sent by browsers), 16 KB body cap, per-IP rate limit on writes, address validation on route params, `/healthz` no longer risks exposing RPC details. New optional env: `PUBLIC_URL`, `TRUST_PROXY`.
 - Activity feed: each payment now shows once (memo transfers emit both `Transfer` and `TransferWithMemo` — previously fanned out into two rows); per-tx fee debits are labeled "network fee"; Payments stat excludes fee debits. Total spent unchanged (still reconciles with the chain).

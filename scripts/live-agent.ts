@@ -17,6 +17,7 @@ import { generatePrivateKey } from "viem/accounts";
 import { tempoModerato } from "viem/chains";
 import { tempoActions, Account } from "viem/tempo";
 import { MODERATO_RPC_URL, PATH_USD_ADDRESS, TIP20_DECIMALS } from "../src/chain.js";
+import { createAgent } from "../src/sdk.js";
 
 const RPC_URL = process.env.TEMPO_RPC_URL ?? MODERATO_RPC_URL;
 const ROOT_KEY_FILE = ".local/moderato-test-key.json";
@@ -126,16 +127,35 @@ async function main() {
     { to: "0x00000000000000000000000000000000000a9e27" as Address, amount: 12_500_000n, reason: "LLM inference credits, batch #4821" },
     { to: "0x00000000000000000000000000000000000da7a2" as Address, amount: 4_990_000n, reason: "Market data snapshot 2026-08-28" },
   ];
+  // With AGENT_SPEND_URL set (a dashboard watching this root account), pay
+  // through the Agent SDK so each payment carries a signed reason record.
+  // Otherwise fall back to a bare memo (hash of the reason text).
+  const agentSpendUrl = process.env.AGENT_SPEND_URL;
+  const sdkAgent = agentSpendUrl
+    ? createAgent({ baseUrl: agentSpendUrl, account: root.address, privateKey: agentKey.privateKey, rpcUrl: RPC_URL })
+    : null;
+  if (sdkAgent) {
+    console.log(`   paying via Agent SDK → ${agentSpendUrl} (waiting for the key to be indexed)…`);
+    const deadline = Date.now() + 60_000;
+    while (!(await fetch(`${agentSpendUrl}/api/v1/agents/${root.address}/${sdkAgent.keyId}`).then((r) => r.ok, () => false))) {
+      if (Date.now() > deadline) throw new Error("dashboard never indexed the agent key");
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+  }
   for (const p of payments) {
-    const result = await agentClient.token.transferSync({
-      token: PATH_USD_ADDRESS,
-      to: p.to,
-      amount: p.amount,
-      memo: memoFor(p.reason),
-    });
+    const txHash = sdkAgent
+      ? (await sdkAgent.pay({ to: p.to, amount: p.amount, reason: p.reason })).txHash
+      : (
+          await agentClient.token.transferSync({
+            token: PATH_USD_ADDRESS,
+            to: p.to,
+            amount: p.amount,
+            memo: memoFor(p.reason),
+          })
+        ).receipt.transactionHash;
     console.log(
       `3. paid ${Number(p.amount) / Number(USD)} pathUSD to ${p.to.slice(0, 10)}… ` +
-        `(memo: "${p.reason}") tx ${result.receipt.transactionHash}`,
+        `(reason: "${p.reason}") tx ${txHash}`,
     );
   }
 

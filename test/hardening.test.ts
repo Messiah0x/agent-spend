@@ -164,7 +164,7 @@ describe("CSRF and input validation on write routes", () => {
 });
 
 describe("activity feed classification", () => {
-  it("shows a memo payment once and labels the per-tx fee debit", async () => {
+  it("shows a memo payment once and folds the per-tx fee debit into it", async () => {
     const memo = keccak256(toHex("dedupe check"));
     await rpc("dev_pay", [
       {
@@ -194,7 +194,7 @@ describe("activity feed classification", () => {
     expect(total).toBe(10_005_903n);
 
     const html = await (await app.request("/activity")).text();
-    expect(html).toContain("network fee");
+    expect(html).toContain("+ 0.005903 fee"); // fee folded into its payment row
     expect(html.match(/−10\.00/g)).toHaveLength(1);
   });
 });
