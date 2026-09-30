@@ -1,11 +1,13 @@
-// Server-rendered UI. No client framework; one shared stylesheet, three pages.
+// Server-rendered UI. No client framework; one shared stylesheet. Inline
+// <style>/<script> carry the per-request CSP nonce (see security.ts).
 
 export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 const css = /* css */ `
@@ -212,6 +214,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge-expired { background: var(--neutral-bg); color: var(--text-secondary); }
 .badge-expired .dot { background: var(--text-muted); }
 
+.chip-fee { background: var(--neutral-bg); color: var(--text-muted); font-family: var(--font); }
+.fee-row td { color: var(--text-muted); }
+.fee-row .amount { font-weight: 450; }
 .chip {
   display: inline-block;
   background: var(--neutral-bg);
@@ -238,12 +243,48 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .page { padding: 20px 14px 48px; }
   .stats { grid-template-columns: 1fr; }
   th, td { padding-left: 14px; padding-right: 14px; }
+  .label-form input { width: 100%; min-width: 0; }
+
+  /* Tables collapse into stacked cards: one row per card, each cell labeled. */
+  table.responsive { white-space: normal; }
+  table.responsive thead { display: none; }
+  table.responsive tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  table.responsive tr:last-child { border-bottom: none; }
+  table.responsive td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 5px 14px;
+    border-bottom: none;
+    text-align: right;
+  }
+  table.responsive td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding-top: 2px;
+  }
+  table.responsive td[data-label=""]::before { content: none; }
+  table.responsive td > * { max-width: 100%; }
+  table.responsive td .label-form { justify-content: flex-end; }
 }
 `;
 
+// Live refresh every 10s, but never while the operator is typing into a form
+// (a reload would discard what they entered).
 const refreshScript = /* js */ `
+var dirty = false;
+document.addEventListener("input", function () { dirty = true; });
 setInterval(function () {
-  if (!document.hidden) location.reload();
+  var a = document.activeElement;
+  var editing = a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT");
+  if (!document.hidden && !editing && !dirty) location.reload();
 }, 10000);
 `;
 
@@ -252,7 +293,7 @@ export interface NavContext {
   network: string;
 }
 
-export function layout(title: string, nav: NavContext, body: string): string {
+export function layout(title: string, nav: NavContext, body: string, nonce: string): string {
   const tabs = [
     { href: "/", id: "overview", label: "Overview" },
     { href: "/activity", id: "activity", label: "Activity" },
@@ -264,7 +305,7 @@ export function layout(title: string, nav: NavContext, body: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} · Agent Spend</title>
-<style>${css}</style>
+<style nonce="${nonce}">${css}</style>
 </head>
 <body>
 <header class="topbar">
@@ -284,7 +325,7 @@ export function layout(title: string, nav: NavContext, body: string): string {
 <main class="page">
 ${body}
 </main>
-<script>${refreshScript}</script>
+<script nonce="${nonce}">${refreshScript}</script>
 </body>
 </html>`;
 }
@@ -296,4 +337,31 @@ export function statusBadge(status: "active" | "revoked" | "expired"): string {
 
 export function emptyState(title: string, note: string): string {
   return `<div class="empty"><div class="empty-title">${escapeHtml(title)}</div>${escapeHtml(note)}</div>`;
+}
+
+export interface Column {
+  label: string;
+  num?: boolean;
+}
+
+/**
+ * Standard data table. Cells are pre-rendered (and pre-escaped) HTML. Each
+ * cell carries its column label so the table can collapse into labeled cards
+ * on narrow screens. `rowClass` optionally styles individual rows.
+ */
+export function dataTable(cols: Column[], rows: string[][], rowClass?: (i: number) => string | undefined): string {
+  const head = cols.map((c) => `<th${c.num ? ' class="num"' : ""}>${escapeHtml(c.label)}</th>`).join("");
+  const body = rows
+    .map((cells, i) => {
+      const cls = rowClass?.(i);
+      const tds = cells
+        .map((html, j) => {
+          const col = cols[j]!;
+          return `<td data-label="${escapeHtml(col.label)}"${col.num ? ' class="num"' : ""}>${html}</td>`;
+        })
+        .join("");
+      return `<tr${cls ? ` class="${cls}"` : ""}>${tds}</tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table class="responsive"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }

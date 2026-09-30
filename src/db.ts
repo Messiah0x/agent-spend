@@ -50,10 +50,19 @@ export interface LimitUpdateRow {
   new_limit: string;
 }
 
-/** A spend joined with the same-transaction token transfer (recipient + memo). */
+/**
+ * A spend joined with the same-transaction token transfer (recipient + memo).
+ *
+ * `kind` classifies the budget debit:
+ * - `payment` — matched to a TIP-20 transfer of the same token/amount;
+ * - `fee`     — unmatched, but another debit in the same tx is a payment
+ *               (Tempo's per-transaction fee debited from the key's limit);
+ * - `other`   — unmatched and alone in its tx (e.g. a non-transfer call).
+ */
 export interface PaymentRow extends SpendRow {
   to_addr: string | null;
   memo: string | null;
+  kind: "payment" | "fee" | "other";
 }
 
 export interface KeyEventRow {
@@ -65,6 +74,33 @@ export interface KeyEventRow {
   token: string | null;
   new_limit: string | null;
 }
+
+/**
+ * CTE classifying every AccessKeySpend (see PaymentRow.kind). The transfer
+ * subqueries share one ordering so recipient and memo come from the same row.
+ */
+const CLASSIFIED_SPENDS = `
+  WITH joined AS (
+    SELECT s.*,
+      (SELECT t.to_addr FROM transfers t
+         WHERE t.tx_hash = s.tx_hash AND t.token = s.token AND t.amount = s.amount
+         ORDER BY (t.memo IS NULL), t.log_index LIMIT 1) AS to_addr,
+      (SELECT t.memo FROM transfers t
+         WHERE t.tx_hash = s.tx_hash AND t.token = s.token AND t.amount = s.amount
+         ORDER BY (t.memo IS NULL), t.log_index LIMIT 1) AS memo,
+      EXISTS (SELECT 1 FROM transfers t
+         WHERE t.tx_hash = s.tx_hash AND t.token = s.token AND t.amount = s.amount) AS matched
+    FROM spends s
+  ),
+  classified AS (
+    SELECT j.*,
+      CASE
+        WHEN j.matched THEN 'payment'
+        WHEN EXISTS (SELECT 1 FROM joined j2 WHERE j2.tx_hash = j.tx_hash AND j2.matched) THEN 'fee'
+        ELSE 'other'
+      END AS kind
+    FROM joined j
+  )`;
 
 export function openDb(path: string) {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -133,11 +169,18 @@ export function openDb(path: string) {
       PRIMARY KEY (account, key_id)
     );
   `);
+  // Migration: databases created before reorg detection lack the cursor's
+  // block hash column.
+  const cursorCols = db.prepare("PRAGMA table_info(cursor)").all() as { name: string }[];
+  if (!cursorCols.some((c) => c.name === "block_hash")) {
+    db.exec("ALTER TABLE cursor ADD COLUMN block_hash TEXT");
+  }
 
   const stmts = {
-    getCursor: db.prepare("SELECT last_block FROM cursor WHERE id = 1"),
+    getCursor: db.prepare("SELECT last_block, block_hash FROM cursor WHERE id = 1"),
     setCursor: db.prepare(
-      "INSERT INTO cursor (id, last_block) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET last_block = excluded.last_block",
+      `INSERT INTO cursor (id, last_block, block_hash) VALUES (1, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET last_block = excluded.last_block, block_hash = excluded.block_hash`,
     ),
     insertKey: db.prepare(`
       INSERT INTO keys (account, key_id, signature_type, expiry, authorized_block, authorized_tx, authorized_time)
@@ -174,8 +217,31 @@ export function openDb(path: string) {
       const row = stmts.getCursor.get() as { last_block: number } | undefined;
       return row ? BigInt(row.last_block) : null;
     },
-    setCursor(block: bigint) {
-      stmts.setCursor.run(Number(block));
+    /** Hash of the last indexed block, for reorg detection (null on old DBs). */
+    getCursorHash(): string | null {
+      const row = stmts.getCursor.get() as { block_hash: string | null } | undefined;
+      return row?.block_hash ?? null;
+    },
+    setCursor(block: bigint, blockHash: string | null = null) {
+      stmts.setCursor.run(Number(block), blockHash);
+    },
+    /**
+     * Discard everything indexed above `block` (chain reorg) and move the
+     * cursor back so those blocks are re-indexed from the canonical chain.
+     * Agent Spend's own data (labels) is untouched.
+     */
+    rewindTo(block: bigint) {
+      const b = Number(block);
+      db.transaction(() => {
+        db.prepare("DELETE FROM spends WHERE block_number > ?").run(b);
+        db.prepare("DELETE FROM transfers WHERE block_number > ?").run(b);
+        db.prepare("DELETE FROM limit_updates WHERE block_number > ?").run(b);
+        db.prepare("DELETE FROM keys WHERE authorized_block > ?").run(b);
+        db.prepare(
+          "UPDATE keys SET revoked_block = NULL, revoked_tx = NULL, revoked_time = NULL WHERE revoked_block > ?",
+        ).run(b);
+        stmts.setCursor.run(b, null);
+      })();
     },
     transaction<T>(fn: () => T): T {
       return db.transaction(fn)();
@@ -228,20 +294,35 @@ export function openDb(path: string) {
         .all() as KeyRow[];
     },
     /**
-     * Spend feed: each AccessKeySpend joined with the same-transaction
-     * TIP-20 transfer of the same token/amount (recipient + memo).
+     * Spend feed: each AccessKeySpend joined with *one* same-transaction
+     * TIP-20 transfer of the same token/amount (recipient + memo). A memo
+     * transfer emits both `Transfer` and `TransferWithMemo`; the memo-bearing
+     * one is preferred so each debit renders exactly once.
      */
-    listPayments(limit = 100): PaymentRow[] {
+    listPayments(opts: { limit?: number; account?: string; keyId?: string } = {}): PaymentRow[] {
+      const { limit = 100 } = opts;
+      const where: string[] = [];
+      const params: (string | number)[] = [];
+      if (opts.account) {
+        where.push("m.account = ?");
+        params.push(opts.account.toLowerCase());
+      }
+      if (opts.keyId) {
+        where.push("m.key_id = ?");
+        params.push(opts.keyId.toLowerCase());
+      }
+      params.push(limit);
       return db
         .prepare(
-          `SELECT s.*, t.to_addr, t.memo
-           FROM spends s
-           LEFT JOIN transfers t
-             ON t.tx_hash = s.tx_hash AND t.token = s.token AND t.amount = s.amount
-           ORDER BY s.block_number DESC, s.log_index DESC
+          `${CLASSIFIED_SPENDS}
+           SELECT m.tx_hash, m.log_index, m.block_number, m.block_time, m.account, m.key_id,
+                  m.token, m.amount, m.remaining, m.to_addr, m.memo, m.kind
+           FROM classified m
+           ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+           ORDER BY m.block_number DESC, m.log_index DESC
            LIMIT ?`,
         )
-        .all(limit) as PaymentRow[];
+        .all(...params) as PaymentRow[];
     },
     spendTotals(): Map<string, bigint> {
       const rows = db
@@ -262,8 +343,11 @@ export function openDb(path: string) {
         .all() as { account: string; key_id: string; t: number }[];
       return new Map(rows.map((r) => [`${r.account}|${r.key_id}`, r.t]));
     },
+    /** Number of real payments (fee and other non-transfer debits excluded). */
     paymentCount(): number {
-      const row = db.prepare("SELECT COUNT(*) AS n FROM spends").get() as { n: number };
+      const row = db
+        .prepare(`${CLASSIFIED_SPENDS} SELECT COUNT(*) AS n FROM classified WHERE kind = 'payment'`)
+        .get() as { n: number };
       return row.n;
     },
     keyEvents(limit = 200): KeyEventRow[] {

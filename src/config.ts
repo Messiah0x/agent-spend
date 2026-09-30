@@ -29,6 +29,23 @@ export interface Config {
    */
   adminUser?: string;
   adminPassword?: string;
+  /** Public origin of the dashboard (e.g. https://agent-spend.up.railway.app), used for CSRF origin checks. */
+  publicUrl?: string;
+  /** Trust X-Forwarded-For for client IPs (set when behind a reverse proxy such as Railway). */
+  trustProxy: boolean;
+}
+
+function intEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): number {
+  const raw = env[name] ?? fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} must be a non-negative integer, got: ${raw}`);
+  return n;
+}
+
+function bigEnv(env: NodeJS.ProcessEnv, name: string, fallback: string): bigint {
+  const raw = env[name] ?? fallback;
+  if (!/^\d+$/.test(raw)) throw new Error(`${name} must be a non-negative integer, got: ${raw}`);
+  return BigInt(raw);
 }
 
 function parseAccounts(raw: string): Address[] {
@@ -64,16 +81,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   return {
     rpcUrl: env.TEMPO_RPC_URL ?? MODERATO_RPC_URL,
-    chainId: Number(env.TEMPO_CHAIN_ID ?? MODERATO_CHAIN_ID),
+    chainId: intEnv(env, "TEMPO_CHAIN_ID", String(MODERATO_CHAIN_ID)),
     watchedAccounts: parseAccounts(accounts),
     tokens: parseTokens(env.TOKENS ?? `${PATH_USD_ADDRESS}:pathUSD`),
-    startBlock: BigInt(env.START_BLOCK ?? "0"),
-    confirmations: BigInt(env.CONFIRMATIONS ?? "2"),
-    pollIntervalMs: Number(env.POLL_INTERVAL_MS ?? "2000"),
+    startBlock: bigEnv(env, "START_BLOCK", "0"),
+    confirmations: bigEnv(env, "CONFIRMATIONS", "2"),
+    pollIntervalMs: intEnv(env, "POLL_INTERVAL_MS", "2000"),
     dbPath: env.DB_PATH ?? "./data/agent-spend.db",
-    port: Number(env.PORT ?? "3000"),
+    port: intEnv(env, "PORT", "3000"),
     explorerUrl: env.EXPLORER_URL || undefined,
     adminUser: env.ADMIN_USER || undefined,
     adminPassword: env.ADMIN_PASSWORD || undefined,
+    publicUrl: env.PUBLIC_URL || undefined,
+    trustProxy: env.TRUST_PROXY === "1" || env.TRUST_PROXY === "true",
   };
 }

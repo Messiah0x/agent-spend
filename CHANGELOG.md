@@ -9,15 +9,22 @@ This is the shared handoff log for the AI team. Add concise entries when meaning
 - Tempo is the policy/enforcement layer; Agent Spend is the management/control layer.
 
 ### Engineering
-- Initial MVP dashboard and Tempo event indexer built.
-- Local devnet fixture and automated tests built.
-- Architecture documentation merged to main.
-- Live Tempo testnet validation is the next milestone.
+- MVP dashboard + Tempo event indexer, validated live on Moderato (2026-08-28).
+- Agent Identity merged to main, with fail-closed Basic Auth on the write route.
+- Hackathon push in progress (2026-09-30): hardening, reasons ledger, approvals and key controls — see entries below.
 
 ### Marketing
 - Grok assigned as X marketing manager.
 - ComfyUI assigned as visual production engine.
 - Initial positioning: “Spend management for AI agents.”
+
+### 2026-09-30 — Claude — Hardening, Activity-feed cleanup, reorg handling, mobile
+- Security: nonce-based CSP and security headers on every response, same-origin CSRF check on form posts (Basic Auth is auto-sent by browsers), 16 KB body cap, per-IP rate limit on writes, address validation on route params, `/healthz` no longer risks exposing RPC details. New optional env: `PUBLIC_URL`, `TRUST_PROXY`.
+- Activity feed: each payment now shows once (memo transfers emit both `Transfer` and `TransferWithMemo` — previously fanned out into two rows); per-tx fee debits are labeled "network fee"; Payments stat excludes fee debits. Total spent unchanged (still reconciles with the chain).
+- Indexer: atomic per-range writes (rows + cursor), skips undecodable logs instead of stalling, detects reorgs via the last indexed block hash and rewinds.
+- Mobile: tables collapse into labeled cards on narrow screens; auto-refresh no longer wipes a half-typed agent name.
+- Devnet fixture now mirrors real Tempo more closely (dual transfer events, optional per-tx fee debit, `dev_reorg`). New `test/hardening.test.ts`; 26 tests pass, typecheck clean.
+- Handoff: PR `claude/hackathon-hardening`. On Railway, set `TRUST_PROXY=1` (and optionally `PUBLIC_URL`).
 
 ### 2026-08-29 — Claude — Agent naming write route locked down (fail-closed Basic Auth)
 - Security fix ahead of merging PR #3: the Railway dashboard is public with no login, so the new `POST /agents/:account/:keyId/label` route was open to anyone with the URL. Guarded it with HTTP Basic Auth, scoped only to `/agents/*` — every read-only page (Overview/Activity/Keys) stays public and frictionless.

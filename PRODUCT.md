@@ -20,7 +20,7 @@ Prove the full live flow on Tempo:
 
 ## Current priorities
 1. Live Tempo testnet validation — done, validated live on Moderato 2026-08-28
-2. Agent labels / identity — MVP implemented 2026-08-29, pending review
+2. Agent labels / identity — shipped (merged to main)
 3. Reasons ledger
 4. Approval / escalation workflows
 5. Key lifecycle and provisioning UI
@@ -35,8 +35,7 @@ within Agent Spend, never Tempo:
 4. The address stays visible as secondary information — the name never hides it.
 5. Unnamed agents render exactly as before this feature existed.
 
-**Status: implemented 2026-08-29, pending review/merge.** See ENGINEERING.md
-and CHANGELOG.md.
+**Status: shipped (merged to main).** See ENGINEERING.md and CHANGELOG.md.
 
 ## Non-goals for now
 - Rebuilding Tempo's native spending-rule engine
