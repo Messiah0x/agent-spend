@@ -63,6 +63,7 @@ interface KeyState {
 const blocks: Block[] = [];
 const keys = new Map<string, KeyState>(); // `${account}|${keyId}` lowercase
 let txCounter = 0;
+let reorgSalt = 0; // bumped by dev_reorg so replacement blocks get new hashes
 
 function now(): number {
   return Math.floor(Date.now() / 1000);
@@ -70,7 +71,7 @@ function now(): number {
 
 function mineBlock(logs: Omit<RawLog, "blockNumber" | "blockHash" | "logIndex" | "removed">[] = []): Block {
   const number = blocks.length;
-  const hash = keccak256(toHex(`block-${number}`));
+  const hash = keccak256(toHex(`block-${number}-${reorgSalt}`));
   const block: Block = {
     number,
     timestamp: now(),
@@ -196,6 +197,8 @@ function devPay(p: {
   to: Address;
   amount: string;
   memo?: Hex;
+  /** Optional per-tx fee (base units) debited from the key's limit, as on real Tempo. */
+  fee?: string;
 }) {
   const k = keys.get(keyOf(p.account, p.keyId));
   if (!k) throw new Error("key not found");
@@ -207,7 +210,8 @@ function devPay(p: {
     limit.remaining = limit.max;
     while (limit.periodEnd <= now()) limit.periodEnd += limit.period;
   }
-  if (amount > limit.remaining) throw new Error("SpendingLimitExceeded");
+  const fee = BigInt(p.fee ?? "0");
+  if (amount + fee > limit.remaining) throw new Error("SpendingLimitExceeded");
   limit.remaining -= amount;
 
   const tx = newTxHash();
@@ -225,31 +229,62 @@ function devPay(p: {
     transactionHash: tx,
     transactionIndex: "0x0" as Hex,
   };
-  const transferLog = p.memo
-    ? {
-        address: p.token as Hex,
-        topics: encodeEventTopics({
-          abi: tip20EventsAbi,
-          eventName: "TransferWithMemo",
-          args: { from: p.account, to: p.to, memo: p.memo },
-        } as any) as Hex[],
-        data: encodeAbiParameters([{ type: "uint256" }], [amount]),
-        transactionHash: tx,
-        transactionIndex: "0x0" as Hex,
-      }
-    : {
-        address: p.token as Hex,
-        topics: encodeEventTopics({
-          abi: tip20EventsAbi,
-          eventName: "Transfer",
-          args: { from: p.account, to: p.to },
-        } as any) as Hex[],
-        data: encodeAbiParameters([{ type: "uint256" }], [amount]),
-        transactionHash: tx,
-        transactionIndex: "0x0" as Hex,
-      };
-  const block = mineBlock([spendLog, transferLog]);
+  // Real TIP-20 behavior: transferWithMemo emits BOTH a plain Transfer and a
+  // TransferWithMemo for the same movement of funds.
+  const transferLogs = [
+    {
+      address: p.token as Hex,
+      topics: encodeEventTopics({
+        abi: tip20EventsAbi,
+        eventName: "Transfer",
+        args: { from: p.account, to: p.to },
+      } as any) as Hex[],
+      data: encodeAbiParameters([{ type: "uint256" }], [amount]),
+      transactionHash: tx,
+      transactionIndex: "0x0" as Hex,
+    },
+  ];
+  if (p.memo) {
+    transferLogs.push({
+      address: p.token as Hex,
+      topics: encodeEventTopics({
+        abi: tip20EventsAbi,
+        eventName: "TransferWithMemo",
+        args: { from: p.account, to: p.to, memo: p.memo },
+      } as any) as Hex[],
+      data: encodeAbiParameters([{ type: "uint256" }], [amount]),
+      transactionHash: tx,
+      transactionIndex: "0x0" as Hex,
+    });
+  }
+  // Real Tempo behavior: a flat per-transaction fee is also debited from the
+  // key's limit as a second AccessKeySpend, with no matching user transfer.
+  const feeLogs = [];
+  if (fee > 0n) {
+    limit.remaining -= fee;
+    feeLogs.push({
+      address: ACCOUNT_KEYCHAIN_ADDRESS as Hex,
+      topics: topicsFor("AccessKeySpend", { account: p.account, publicKey: p.keyId, token: p.token }),
+      data: encodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], [fee, limit.remaining]),
+      transactionHash: tx,
+      transactionIndex: "0x0" as Hex,
+    });
+  }
+  const block = mineBlock([spendLog, ...transferLogs, ...feeLogs]);
   return { txHash: tx, blockNumber: block.number, remaining: limit.remaining.toString() };
+}
+
+/**
+ * Simulate a reorg: drop the last `depth` blocks (and their logs) and mine
+ * the same number of empty replacement blocks with different hashes. Key/limit
+ * state is not rolled back — this exists to exercise the indexer's reorg path.
+ */
+function devReorg(p: { depth?: number }) {
+  const depth = Math.min(p.depth ?? 1, blocks.length - 1);
+  blocks.splice(blocks.length - depth, depth);
+  reorgSalt++;
+  for (let i = 0; i < depth; i++) mineBlock();
+  return { blockNumber: blocks.length - 1 };
 }
 
 // ── eth_* handlers ───────────────────────────────────────────────────────────
@@ -371,6 +406,8 @@ function handle(method: string, params: any[]): unknown {
       return devPay(params[0]);
     case "dev_mine":
       return { blockNumber: mineBlock().number };
+    case "dev_reorg":
+      return devReorg(params[0] ?? {});
     default:
       throw new Error(`method not supported: ${method}`);
   }

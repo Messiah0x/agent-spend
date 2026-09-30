@@ -25,6 +25,8 @@ const MEMO = keccak256(toHex(REASON));
 
 const ADMIN_USER = "admin";
 const ADMIN_PASSWORD = "test-only-secret";
+/** Same-origin Origin header, as a browser sends on a form post to app.request()'s default host. */
+const ORIGIN = "http://localhost";
 const AUTH_HEADER = `Basic ${Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString("base64")}`;
 
 let devnet: Server;
@@ -140,7 +142,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
   it("agent identity: naming an agent from Overview shows the name everywhere, address still visible", async () => {
     const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER },
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER, origin: ORIGIN },
       body: `label=${encodeURIComponent("Research Agent")}`,
     });
     expect(res.status).toBe(302);
@@ -155,7 +157,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
   it("agent identity: renaming replaces the old name everywhere", async () => {
     const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER },
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER, origin: ORIGIN },
       body: `label=${encodeURIComponent("Claude Sales Agent")}`,
     });
     expect(res.status).toBe(302);
@@ -177,7 +179,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
   it("agent identity: clearing the label (empty string) reverts to address-only display", async () => {
     const res = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER },
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: AUTH_HEADER, origin: ORIGIN },
       body: "label=",
     });
     expect(res.status).toBe(302);
@@ -190,7 +192,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
   it("agent identity: write route rejects requests with no or wrong credentials", async () => {
     const noAuth = await app.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN },
       body: "label=Hijacked",
     });
     expect(noAuth.status).toBe(401);
@@ -199,6 +201,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
+        origin: ORIGIN,
         authorization: `Basic ${Buffer.from("admin:wrong-password").toString("base64")}`,
       },
       body: "label=Hijacked",
@@ -222,7 +225,7 @@ describe("milestone: agent payment appears on the dashboard", () => {
 
     const res = await unauthedApp.request(`/agents/${ACCOUNT.toLowerCase()}/${AGENT_KEY.toLowerCase()}/label`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN },
       body: "label=Should Not Work",
     });
     expect(res.status).toBe(503);

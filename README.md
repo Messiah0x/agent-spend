@@ -122,6 +122,8 @@ Defaults (verified against the [tempoxyz/tempo](https://github.com/tempoxyz/temp
 | `PORT` | `3000` |
 | `EXPLORER_URL` | unset (tx links off) |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | unset — see below |
+| `PUBLIC_URL` | unset — public origin (e.g. `https://…up.railway.app`), accepted for CSRF origin checks |
+| `TRUST_PROXY` | unset — set `1` behind a reverse proxy (Railway) so rate limits key on `X-Forwarded-For` |
 
 AccountKeychain precompile: `0xaAAAaaAA00000000000000000000000000000000`.
 
@@ -130,6 +132,10 @@ AccountKeychain precompile: `0xaAAAaaAA00000000000000000000000000000000`.
 The dashboard itself is read-only and meant to be viewed freely. Naming/renaming an agent (`POST /agents/:account/:keyId/label`) is the one write route, and it's guarded by HTTP Basic Auth: set both `ADMIN_USER` and `ADMIN_PASSWORD` to enable it. **Until both are set, that route fails closed (503)** — it does not fall back to being open.
 
 This is deliberately not a full authentication system: it is one shared credential for a single operator, applied only to that route; every other page stays public with no login.
+
+### Hardening
+
+Every response carries a strict Content-Security-Policy (per-request nonce, no third-party origins, no framing) plus `nosniff`, `Referrer-Policy: no-referrer`, and HSTS over HTTPS. Browser form posts must be same-origin (CSRF protection — Basic Auth credentials are sent automatically by browsers, so this matters). Bodies are capped at 16 KB, write routes are rate-limited per client IP, route addresses are validated, and `/healthz` never exposes RPC details (provider URLs can embed API keys).
 
 ## Test
 

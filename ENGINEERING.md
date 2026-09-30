@@ -21,6 +21,10 @@ Before coding, read PRODUCT.md and this file. Keep the implementation aligned wi
 - Indexes key authorization, revocation, spending-limit updates, access-key spend, Transfer, and TransferWithMemo events
 - Agent identity: human-readable labels for access keys, named/renamed from Overview, shown on Overview/Activity/Keys. Agent Spend's own data (local `agent_labels` table) — never written to Tempo, never affects on-chain enforcement. The write route (`POST /agents/:account/:keyId/label`) is guarded by HTTP Basic Auth (`ADMIN_USER`/`ADMIN_PASSWORD`) and fails closed (503) if either is unset — needed once the dashboard is on a public URL with no other auth in front of it. Read-only pages remain public.
 - Local devnet fixture and automated tests
+- Hardening (2026-09-30): nonce-based CSP + security headers, same-origin CSRF checks on form posts, 16 KB body limit, per-IP rate limiting on writes, address validation on route params, graceful shutdown, `/healthz` reports indexer health without leaking the RPC URL.
+- Indexer (2026-09-30): each block range and its cursor commit in one SQLite transaction; undecodable logs are skipped with a warning instead of stalling the loop; reorg detection compares the stored hash of the last indexed block and rewinds 64 blocks on mismatch.
+- Activity feed (2026-09-30): each budget debit renders once — a memo transfer's duplicate `Transfer`/`TransferWithMemo` pair is collapsed (memo-bearing row preferred), and fee-only debits are labeled "network fee". The Payments stat counts payments only; Total spent still includes fees (it must reconcile with on-chain remaining).
+- Mobile (2026-09-30): tables collapse into labeled stacked cards under 720px; auto-refresh pauses while a form is being edited.
 
 ## Immediate engineering milestone
 Validate the product against the real Tempo Moderato testnet.
@@ -61,9 +65,10 @@ remaining budget (482.50 pathUSD), matching the on-chain read. See CHANGELOG.md.
   — clear `data/*.db` if you need to change `START_BLOCK` on an existing DB.
 
 ## Known follow-ups
-- Improve mobile table overflow after live validation.
+- ~~Improve mobile table overflow after live validation.~~ Done 2026-09-30.
+- ~~Activity-feed dedupe / fee labeling.~~ Done 2026-09-30 (see Existing MVP). Original investigation notes kept below.
 - Review event association for transactions containing multiple relevant events. Investigated 2026-08-29: each payment tx fires *two* `AccessKeySpend` events against the key's budget (the payment amount, plus a flat ~0.005903 pathUSD per-transaction fee debited from the same limit — separate from the network fee `Transfer` to the protocol's `0xfeec…` collector, which comes out of the root account's balance, not the key's budget). `spendTotals()` correctly sums both — this is why "Total spent" (e.g. 17.50) is larger than the sum of payment amounts alone (12.50 + 4.99 = 17.49): the fee debit is real and belongs in it, since it's what makes the figure reconcile with the on-chain remaining budget. Not a bug; do not "fix" by excluding fee-only spend rows. What's still open: the Activity feed's join fans one spend row out into two near-duplicate rows (once against the plain `Transfer`, once against `TransferWithMemo`) and shows the fee-only spend as an unlabeled "−0.00" row — worth deduping/labeling for clarity, but cosmetic.
-- Consider deeper reorg handling later.
+- ~~Consider deeper reorg handling later.~~ Basic reorg detection + rewind done 2026-09-30.
 
 ## Do not build yet
 - Reasons ledger
