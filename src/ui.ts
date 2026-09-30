@@ -46,7 +46,7 @@ a { color: inherit; }
   border-bottom: 1px solid var(--border);
 }
 .topbar-inner {
-  max-width: 1080px;
+  max-width: 1240px;
   margin: 0 auto;
   padding: 0 20px;
   display: flex;
@@ -62,6 +62,8 @@ a { color: inherit; }
   align-items: center;
   gap: 9px;
   text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .brand-mark {
   width: 22px; height: 22px;
@@ -74,11 +76,13 @@ a { color: inherit; }
   font-size: 11px;
   font-weight: 700;
 }
-.nav { display: flex; gap: 4px; height: 100%; }
+.nav { display: flex; gap: 4px; height: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.nav::-webkit-scrollbar { display: none; }
 .nav a {
   display: inline-flex;
   align-items: center;
   padding: 0 12px;
+  white-space: nowrap;
   text-decoration: none;
   color: var(--text-secondary);
   font-weight: 500;
@@ -98,7 +102,7 @@ a { color: inherit; }
 }
 .net-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
 
-.page { max-width: 1080px; margin: 0 auto; padding: 28px 20px 64px; }
+.page { max-width: 1240px; margin: 0 auto; padding: 28px 20px 64px; }
 .page-title { font-size: 20px; font-weight: 650; letter-spacing: -0.02em; }
 .page-sub { color: var(--text-secondary); margin-top: 2px; margin-bottom: 24px; }
 
@@ -151,12 +155,12 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  padding: 10px 18px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
 td {
-  padding: 12px 18px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
@@ -227,6 +231,27 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   color: var(--text-secondary);
 }
 
+.crumb { margin-bottom: 10px; font-size: 13px; }
+.crumb a { color: var(--text-secondary); text-decoration: none; }
+.crumb a:hover { color: var(--text); }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.grid-2 .card + .card { margin-top: 0; }
+.pad { padding: 16px 18px; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; }
+.facts dt { color: var(--text-muted); font-size: 12px; padding-top: 1px; }
+.facts dd { min-width: 0; }
+.proof { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+.proof .facts { margin-top: 2px; }
+.problems { color: var(--critical); padding-left: 18px; }
+.reason-quote { font-size: 15px; line-height: 1.5; border-left: 3px solid var(--border-strong); padding-left: 12px; }
+.wrap { overflow-wrap: anywhere; white-space: pre-wrap; }
+details summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; }
+details pre { margin-top: 8px; background: var(--neutral-bg); border-radius: 6px; padding: 10px; font-size: 12px; }
+.reason-cell { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px 8px; white-space: normal; min-width: 200px; max-width: 300px; }
+.reason-link { text-decoration: none; border-bottom: 1px dotted var(--border-strong); }
+.reason-link:hover { border-bottom-color: var(--text-muted); }
+a.chip { text-decoration: none; }
+
 .empty {
   padding: 48px 20px;
   text-align: center;
@@ -238,10 +263,16 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .txlink:hover { color: var(--text); border-bottom-color: var(--text-muted); }
 
 @media (max-width: 720px) {
-  .topbar-inner { gap: 14px; padding: 0 14px; }
+  .topbar-inner { gap: 10px; padding: 0 14px; }
+  .brand-text { display: none; }
+  .nav a { padding: 0 9px; }
   .net { display: none; }
   .page { padding: 20px 14px 48px; }
   .stats { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .facts { grid-template-columns: 1fr; gap: 2px; }
+  .facts dd { margin-bottom: 8px; }
+  .reason-cell { white-space: normal; justify-content: flex-end; flex-wrap: wrap; }
   th, td { padding-left: 14px; padding-right: 14px; }
   .label-form input { width: 100%; min-width: 0; }
 
@@ -288,6 +319,12 @@ setInterval(function () {
 }, 10000);
 `;
 
+const FAVICON =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#171715"/><text x="16" y="22" font-family="system-ui,sans-serif" font-size="16" font-weight="700" fill="#fff" text-anchor="middle">A</text></svg>`,
+  );
+
 export interface NavContext {
   active: "overview" | "activity" | "keys";
   network: string;
@@ -304,13 +341,14 @@ export function layout(title: string, nav: NavContext, body: string, nonce: stri
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="${FAVICON}">
 <title>${escapeHtml(title)} · Agent Spend</title>
 <style nonce="${nonce}">${css}</style>
 </head>
 <body>
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="/"><span class="brand-mark">A</span>Agent Spend</a>
+    <a class="brand" href="/" aria-label="Agent Spend home"><span class="brand-mark">A</span><span class="brand-text">Agent Spend</span></a>
     <nav class="nav">
       ${tabs
         .map(

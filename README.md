@@ -97,11 +97,11 @@ WATCHED_ACCOUNTS=0x1111111111111111111111111111111111111111 \
 TEMPO_RPC_URL=http://localhost:8545 CONFIRMATIONS=0 npm run dev
 
 # 3. Simulated agent: authorizes a key with a 500 pathUSD/month budget,
-#    then makes memo-tagged payments
+#    then pays through the Agent SDK — each payment carries a signed reason
 npm run demo
 ```
 
-Open http://localhost:3000 — the agent, its payments, and its live remaining budget are on the Overview and Activity pages.
+Open http://localhost:3000 — the agent, its payments, and its live remaining budget are on the Overview and Activity pages. Click a reason to see its proof (record hash = on-chain memo, signer = the agent's key).
 
 ## Against Tempo testnet (Moderato)
 
@@ -136,6 +136,37 @@ This is deliberately not a full authentication system: it is one shared credenti
 ### Hardening
 
 Every response carries a strict Content-Security-Policy (per-request nonce, no third-party origins, no framing) plus `nosniff`, `Referrer-Policy: no-referrer`, and HSTS over HTTPS. Browser form posts must be same-origin (CSRF protection — Basic Auth credentials are sent automatically by browsers, so this matters). Bodies are capped at 16 KB, write routes are rate-limited per client IP, route addresses are validated, and `/healthz` never exposes RPC details (provider URLs can embed API keys).
+
+## Reasons ledger, Agent SDK, and MCP
+
+Every payment can say **why**. The agent builds a small reason record (who pays, which key, token, recipient, amount, the reason text, optional MPP context like `externalId`, and a random nonce), signs its keccak256 hash with its own access key, registers it with Agent Spend, and pays with `transferWithMemo` carrying that same hash as the memo.
+
+- The dashboard joins each on-chain payment to its reason by memo and checks the payment the chain recorded against what the record describes: **Verified** when payer, key, token, recipient and amount all match, **Mismatch** (with the differences listed) when they don't.
+- Anyone can verify independently: `GET /api/v1/reasons/:memo` returns the record; re-hash its canonical JSON and compare to the on-chain memo.
+- Agent writes need no shared secret: requests are signed by the agent's access key and accepted only from keys the watched account has actually authorized on-chain and not revoked.
+
+**Agent SDK** (`src/sdk.ts`):
+
+```ts
+import { createAgent } from "./src/sdk.js";
+
+const agent = createAgent({ baseUrl: "https://your-agent-spend", account: ROOT_ACCOUNT, privateKey: AGENT_KEY });
+await agent.pay({ to: VENDOR, amount: 12_500_000n, reason: "LLM credits, batch #4821", context: { externalId: "inv_4821" } });
+```
+
+`pay` pre-checks the live on-chain budget (throws `BudgetExceededError` before sending anything), registers the signed reason, then pays. The agent holds only its own access key; Tempo enforces the limit.
+
+**MCP server** (`npm run mcp`): exposes `get_budget` and `pay` as MCP tools over stdio, so any MCP-capable agent (Claude Code, Claude Desktop, …) can spend with a reason. Configure with `AGENT_SPEND_URL`, `AGENT_ACCOUNT`, `AGENT_PRIVATE_KEY` (+ `TEMPO_RPC_URL`; `AGENT_SPEND_DEVNET=1` for the local fixture).
+
+**JSON API** (`/api/v1`, reads public like the dashboard):
+
+| Route | Purpose |
+|---|---|
+| `GET /agents` | All agent keys: name, status, total spent, live budgets |
+| `GET /agents/:account/:keyId` | One agent |
+| `GET /payments?account=&keyId=&limit=` | Payments with reason + verdict |
+| `GET /reasons/:memo` | Reason record, signature, matching payment, verdict |
+| `POST /reasons` | Agent-signed: register a reason (`{ record, signature }`) → `{ memo }` |
 
 ## Test
 

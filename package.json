@@ -1,6 +1,6 @@
 {
   "name": "agent-spend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Spend visibility dashboard for AI agents on Tempo",
   "scripts": {
     "test": "vitest run",
@@ -9,7 +9,8 @@
     "devnet": "tsx scripts/devnet.ts",
     "demo": "tsx scripts/demo-agent.ts",
     "live-agent": "tsx scripts/live-agent.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "mcp": "tsx src/mcp.ts"
   },
   "repository": {
     "type": "git",
