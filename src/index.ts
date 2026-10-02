@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { openDb } from "./db.js";
 import { helpContent, helpSeo } from "./help.js";
 import { createIndexer } from "./indexer.js";
+import { mobilePolishCss } from "./mobile-polish.js";
 import { createNotifier } from "./notify.js";
 import { onboardingPanel } from "./onboarding.js";
 import { createReader } from "./reads.js";
@@ -51,6 +52,13 @@ app.get("/help", (c) =>
   ),
 );
 
+// Small same-origin stylesheet used for the final mobile presentation pass.
+app.get("/mobile-polish.css", (c) => {
+  c.header("Content-Type", "text/css; charset=utf-8");
+  c.header("Cache-Control", "public, max-age=300");
+  return c.body(mobilePolishCss);
+});
+
 if (!config.adminUser || !config.adminPassword) {
   console.warn("ADMIN_USER/ADMIN_PASSWORD not set: admin write routes are disabled (fail closed).");
 } else if (config.adminPassword.length < 12) {
@@ -63,7 +71,27 @@ if (writer) {
   }
 }
 
-const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
+// Decorate HTML responses at the edge of the app rather than duplicating the
+// shared layout. This also gives first-time users a useful action from the
+// overview's empty agent state.
+async function polishedFetch(request: Request): Promise<Response> {
+  const response = await app.fetch(request);
+  const type = response.headers.get("content-type") ?? "";
+  if (!type.includes("text/html")) return response;
+
+  let html = await response.text();
+  html = html.replace("</head>", '<link rel="stylesheet" href="/mobile-polish.css"></head>');
+  html = html.replace(
+    '<div class="empty-title">No agent keys yet</div>Access keys authorized by the watched accounts will appear here automatically.',
+    '<div class="empty-title">No agent keys yet</div>Connect your first agent to set a controlled on-chain spending budget.<div class="empty-actions"><a class="primary-link" href="/getting-started">Set up your first agent</a><a href="/help">How it works</a></div>',
+  );
+
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(html, { status: response.status, statusText: response.statusText, headers });
+}
+
+const server = serve({ fetch: polishedFetch, port: config.port }, (info) => {
   console.log(`agent-spend dashboard: http://localhost:${info.port}`);
   console.log(`watching ${config.watchedAccounts.length} account(s) on chain ${config.chainId}`);
 });
