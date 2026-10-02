@@ -16,7 +16,9 @@ declare module "hono" {
 
 /**
  * Strict CSP: no third-party origins, no inline code except what carries this
- * request's nonce, no framing, forms may only post back to us.
+ * request's nonce, no framing, forms may only post back to us. Same-origin
+ * stylesheets are allowed so the app can serve its responsive presentation
+ * layer without weakening the inline-style nonce requirement.
  */
 export function securityHeaders(): MiddlewareHandler {
   return async (c, next) => {
@@ -27,7 +29,7 @@ export function securityHeaders(): MiddlewareHandler {
       "Content-Security-Policy",
       [
         "default-src 'none'",
-        `style-src 'nonce-${nonce}'`,
+        `style-src 'self' 'nonce-${nonce}'`,
         `script-src 'nonce-${nonce}'`,
         "img-src 'self' data:",
         "connect-src 'self'",
