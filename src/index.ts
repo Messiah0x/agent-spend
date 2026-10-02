@@ -21,8 +21,8 @@ const network =
   config.chainId === 42431 ? "Tempo Moderato" : config.chainId === 4217 ? "Tempo" : `Chain ${config.chainId}`;
 
 // Public product education. This route intentionally lives outside the private
-// dashboard information architecture so search engines can index useful,
-// plain-language documentation without exposing operator data.
+// dashboard information architecture so operators can learn the product in
+// plain language without exposing any account-specific data.
 app.get("/help", (c) =>
   c.html(
     layout(
@@ -30,7 +30,6 @@ app.get("/help", (c) =>
       { active: "overview", network, pendingApprovals: db.pendingApprovalCount() },
       helpContent({ network }),
       c.get("nonce"),
-      { description: helpSeo.description, indexable: true },
     ),
   ),
 );
