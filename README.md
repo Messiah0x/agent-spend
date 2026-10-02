@@ -6,6 +6,66 @@ Agent Spend is infrastructure for giving AI agents the ability to participate in
 
 Tempo's AccountKeychain provides the on-chain enforcement layer: an account can authorize individual agent access keys and give each key specific spending permissions such as budgets, periodic limits, and recipient allowlists. Agent Spend sits on top of that infrastructure as the management and visibility layer for humans operating those agents.
 
+## Launch readiness checklist
+
+Last updated: October 2, 2026.
+
+This is the working source of truth for what has been completed and what still needs to happen before calling Agent Spend production-ready.
+
+### Completed
+
+- [x] Core Tempo AccountKeychain indexing and watched-account discovery.
+- [x] Live on-chain remaining-budget reads and budget-health indicators.
+- [x] Payment/activity indexing with signed reasons and verification.
+- [x] Agent detail pages with spend, burn rate, runway, recipients, history, and controls.
+- [x] Budget escalation flow: signed request → operator review → on-chain limit update → retry.
+- [x] Agent-key authorization, spending-limit updates, and revocation controls.
+- [x] Operator audit trail.
+- [x] Low/exhausted-budget and pending-approval attention states.
+- [x] Optional webhook notifications.
+- [x] TypeScript Agent SDK.
+- [x] MCP server integration.
+- [x] JSON API.
+- [x] SQLite persistence, idempotent indexing, restart recovery, and reorg handling.
+- [x] Dark dashboard redesign.
+- [x] Responsive desktop/mobile navigation and mobile dashboard polish.
+- [x] First-run onboarding and instructional empty states.
+- [x] Product help/education page.
+- [x] CSP/security-header fix so production mobile styles load correctly.
+- [x] CSRF protection, write rate limiting, body limits, output escaping, and fail-closed admin writes.
+- [x] Railway production deployment from `main`.
+- [x] Railway health check and restart-on-failure configuration.
+- [x] Production routes responding successfully.
+- [x] GitHub CI with typecheck and automated tests.
+- [x] Production dependency audit added to CI.
+- [x] Automated smoke checks added for `/`, `/activity`, `/approvals`, `/keys`, `/help`, and `/getting-started`.
+
+### Remaining before production-ready
+
+- [ ] Replace the current Railway `ADMIN_PASSWORD` with a strong random password of at least 12 characters. **Known production issue.**
+- [ ] Complete a fresh real Tempo/Moderato end-to-end production smoke test using an actual funded account and agent key: provision → spend → observe → request budget → approve → retry → revoke.
+- [ ] Confirm every production write path with the configured operator/admin key, including authorize, update limit, approve, deny, label, and revoke.
+- [ ] Verify failure states against production RPC/network interruptions and unavailable budget reads.
+- [ ] Perform final visual QA on current iPhone/Safari and desktop after the latest mobile redesign; fix any remaining spacing, overflow, safe-area, or navigation defects found on-device.
+- [ ] Verify loading, empty, error, success, expired-request, revoked-key, low-budget, and exhausted-budget states on both mobile and desktop.
+- [ ] Confirm production persistence across a Railway restart/redeploy and ensure indexed events are not duplicated.
+- [ ] Confirm webhook delivery in production if alerts will be enabled at launch.
+- [ ] Configure a permanent production domain and `PUBLIC_URL` if the Railway-generated domain is not the final public URL.
+- [ ] Configure production transaction explorer links if desired (`EXPLORER_URL`).
+- [ ] Decide whether launch remains single-operator Basic Auth or requires multi-user authentication/roles before wider access.
+- [ ] Run the final CI + dependency audit + smoke suite on the exact launch commit and require all checks to pass.
+- [ ] Final production smoke check after the launch commit is deployed to Railway.
+
+### Post-launch / roadmap
+
+- [ ] MPP 402 auto-handling in the SDK.
+- [ ] One-time payment keys scoped to one approved purchase.
+- [ ] Recipient-allowlist management from the UI.
+- [ ] Multi-user authentication and roles.
+- [ ] Per-category budgets.
+- [ ] Fleet-level analytics and reporting.
+- [ ] Production analytics/observability beyond current application and Railway logs.
+
 ## What we're building
 
 AI agents are becoming capable of doing increasingly useful work independently: researching products, purchasing services, paying APIs, managing infrastructure, executing business workflows, and coordinating with other agents. But an agent that can make decisions also needs a safe way to spend money while completing those decisions.
@@ -185,4 +245,4 @@ npm test          # 71 end-to-end tests against the devnet fixture
 npm run typecheck
 ```
 
-Suites: `e2e` (agent pays → dashboard), `hardening` (headers, CSRF, XSS, reorgs, feed classification), `reasons` (signed reasons, verification, API auth, MCP), `controls` (escalation → on-chain approval → retry, revoke/limit/authorize, alerts, redirect safety). CI runs both on every PR.
+Suites: `e2e` (agent pays → dashboard), `hardening` (headers, CSRF, XSS, reorgs, feed classification), `reasons` (signed reasons, verification, API auth, MCP), `controls` (escalation → on-chain approval → retry, revoke/limit/authorize, alerts, redirect safety). CI runs both on every PR and now includes a production dependency audit plus route smoke tests.
