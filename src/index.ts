@@ -5,6 +5,7 @@ import { openDb } from "./db.js";
 import { helpContent, helpSeo } from "./help.js";
 import { createIndexer } from "./indexer.js";
 import { createNotifier } from "./notify.js";
+import { onboardingPanel } from "./onboarding.js";
 import { createReader } from "./reads.js";
 import { createServer } from "./server.js";
 import { layout } from "./ui.js";
@@ -19,6 +20,22 @@ const notify = createNotifier(config);
 const app = createServer(config, db, reader, { indexer, writer, notify });
 const network =
   config.chainId === 42431 ? "Tempo Moderato" : config.chainId === 4217 ? "Tempo" : `Chain ${config.chainId}`;
+
+app.get("/getting-started", (c) =>
+  c.html(
+    layout(
+      "Getting started",
+      { active: "overview", network, pendingApprovals: db.pendingApprovalCount() },
+      `<h1 class="page-title">Getting started</h1><p class="page-sub">Set up controlled AI agent spending on ${network}.</p>${onboardingPanel({
+        agentCount: db.listKeys().length,
+        paymentCount: db.paymentCount(),
+        pendingApprovals: db.pendingApprovalCount(),
+        network,
+      })}`,
+      c.get("nonce"),
+    ),
+  ),
+);
 
 // Public product education. This route intentionally lives outside the private
 // dashboard information architecture so operators can learn the product in
