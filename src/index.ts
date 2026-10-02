@@ -2,10 +2,12 @@ import { serve } from "@hono/node-server";
 import { checkBudgetAlerts } from "./alerts.js";
 import { loadConfig } from "./config.js";
 import { openDb } from "./db.js";
+import { helpContent, helpSeo } from "./help.js";
 import { createIndexer } from "./indexer.js";
 import { createNotifier } from "./notify.js";
 import { createReader } from "./reads.js";
 import { createServer } from "./server.js";
+import { layout } from "./ui.js";
 import { createWriter } from "./writer.js";
 
 const config = loadConfig();
@@ -15,6 +17,23 @@ const reader = createReader(config);
 const writer = createWriter(config);
 const notify = createNotifier(config);
 const app = createServer(config, db, reader, { indexer, writer, notify });
+const network =
+  config.chainId === 42431 ? "Tempo Moderato" : config.chainId === 4217 ? "Tempo" : `Chain ${config.chainId}`;
+
+// Public product education. This route intentionally lives outside the private
+// dashboard information architecture so search engines can index useful,
+// plain-language documentation without exposing operator data.
+app.get("/help", (c) =>
+  c.html(
+    layout(
+      helpSeo.title,
+      { active: "overview", network, pendingApprovals: db.pendingApprovalCount() },
+      helpContent({ network }),
+      c.get("nonce"),
+      { description: helpSeo.description, indexable: true },
+    ),
+  ),
+);
 
 if (!config.adminUser || !config.adminPassword) {
   console.warn("ADMIN_USER/ADMIN_PASSWORD not set: admin write routes are disabled (fail closed).");
