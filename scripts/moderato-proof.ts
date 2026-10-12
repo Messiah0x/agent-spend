@@ -72,7 +72,7 @@ async function main() {
     const app = createServer(appConfig, db, createReader(appConfig), { indexer, writer });
     const sdk = createAgent({
       baseUrl: "http://localhost", account: root.address, privateKey: agentPrivateKey,
-      fetch: (url, init) => app.request(url, init),
+      fetch: async (url, init) => await app.request(url, init),
     });
     const request = await sdk.requestApproval({ amount: 2n * usd, to: recipient, reason: "Real Moderato budget escalation proof" });
     if (request.status !== "pending") throw new Error("Signed approval request not pending: " + request.status);
