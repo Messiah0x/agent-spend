@@ -27,4 +27,13 @@ button,.btn,.button,input[type=submit]{border-radius:9px;font-weight:680;min-hei
 :root[data-theme="light"] .guide-step:hover{background:#F8F8FF}
 @media(max-width:720px){:root[data-theme="light"] .topbar{background:rgba(255,255,255,.98)!important}}
 
+/* Accessible contrast for light mode: empty states and secondary actions. */
+:root[data-theme="light"] .empty-title{color:#111827!important}
+:root[data-theme="light"] .empty{color:#475467!important}
+:root[data-theme="light"] .empty-actions a{background:#F8FAFC!important;color:#111827!important;border:1px solid #CBD5E1!important}
+:root[data-theme="light"] .empty-actions a.primary,:root[data-theme="light"] .empty-actions a.primary-link{background:#2563EB!important;color:#FFFFFF!important;border-color:#2563EB!important}
+:root[data-theme="light"] .card-note,:root[data-theme="light"] .stat-value .unit,:root[data-theme="light"] .stat-label,:root[data-theme="light"] .page-sub,:root[data-theme="light"] .sub,:root[data-theme="light"] .muted{color:#475467!important}
+:root[data-theme="light"] .nav a{color:#475467!important}
+:root[data-theme="light"] .nav a.active{color:#3031A5!important}
+
 `;
