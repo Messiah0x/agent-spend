@@ -40,6 +40,20 @@ async function main() {
   if (!rejected) throw new Error("CRITICAL: over-limit transfer succeeded");
   const after = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
   if (after.remaining > before.remaining || before.remaining - after.remaining > 100_000n) throw new Error("Unexpected budget change after rejected transfer: before=" + before.remaining + " after=" + after.remaining);
-  console.log("PASS: actual Moderato transaction succeeded, over-limit attempt rejected, remaining base units:", after.remaining.toString());
+  // Owner-authorized budget increase and agent retry on the REAL network.
+  // This proves on-chain escalation mechanics; dashboard approval API is tested separately.
+  const increase = await client.accessKey.updateLimitSync({
+    accessKey: agent.accessKeyAddress,
+    token: PATH_USD_ADDRESS,
+    limit: 5n * usd,
+  });
+  console.log("Owner raised limit to 5 pathUSD:", increase.receipt.transactionHash, "block:", increase.receipt.blockNumber.toString());
+  const raised = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
+  if (raised.remaining < 2n * usd) throw new Error("Budget increase not reflected on-chain: " + raised.remaining);
+  const retry = await agentClient.token.transferSync({ token: PATH_USD_ADDRESS, to: recipient, amount: 2n * usd });
+  console.log("Agent retry succeeded (2 pathUSD):", retry.receipt.transactionHash, "block:", retry.receipt.blockNumber.toString());
+  const finalBudget = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
+  if (finalBudget.remaining >= raised.remaining) throw new Error("Retry did not consume allowance");
+  console.log("PASS: Moderato rejected over-budget payment, owner increased limit, agent retry succeeded; remaining:", finalBudget.remaining.toString());
 }
 main().catch(err => { console.error("FAIL:", err instanceof Error ? err.message : err); process.exitCode = 1; });
