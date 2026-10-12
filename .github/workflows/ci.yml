@@ -55,3 +55,16 @@ jobs:
       - name: Show server log on failure
         if: failure()
         run: cat /tmp/agent-spend.log || true
+
+  moderato-live-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify actual Moderato testnet limit enforcement
+        run: npx tsx scripts/moderato-proof.ts
