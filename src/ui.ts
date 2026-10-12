@@ -10,7 +10,7 @@ export function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-const css = /* css */ `
+const css = /* css */ `\n.theme-toggle{position:fixed;right:20px;top:18px;z-index:50;display:grid;place-items:center;width:38px;height:38px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);cursor:pointer;font-size:20px}\n.brand-mark{background:#fff!important;box-shadow:none!important;overflow:hidden}.brand-mark img{display:block;object-fit:contain;width:100%;height:100%}\n:root[data-theme="light"]{color-scheme:light;--bg:#F7F7F5;--surface:#fff;--surface-2:#F1F2F4;--surface-hover:#EDEEF1;--border:#E5E7EB;--border-strong:#CED2D9;--text:#0B0D10;--text-secondary:#424A56;--text-muted:#667085;--accent:#5B5CF6;--accent-soft:rgba(91,92,246,.09);--neutral-bg:#EFF0F2;--good:#14804A;--good-bg:#E8F6EF;--warn:#A66400;--warn-bg:#FFF3DC;--critical:#BD3632;--critical-bg:#FDECEB}\n:root[data-theme="light"] body{background:var(--bg)!important;color:var(--text)}\n:root[data-theme="light"] .topbar{background:#fff!important;border-color:var(--border)}\n:root[data-theme="light"] .card,:root[data-theme="light"] .stat,:root[data-theme="light"] .guide-step,:root[data-theme="light"] .guide-map,:root[data-theme="light"] .table-wrap{background:#fff!important;border-color:var(--border)!important;color:var(--text);box-shadow:0 4px 24px rgba(20,25,35,.035)}\n:root[data-theme="light"] .page-title,:root[data-theme="light"] .stat-value,:root[data-theme="light"] .card-title,:root[data-theme="light"] .guide-map-grid strong{color:var(--text)}\n:root[data-theme="light"] .nav a{color:#667085}:root[data-theme="light"] .nav a.active{color:#3738A7!important;background:#F0F0FF!important}\n@media(max-width:720px){.theme-toggle{top:12px;right:12px}}\n
 :root {
   color-scheme: dark;
   --bg: #242a31;
@@ -127,7 +127,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible { 
 }
 `;
 
-const refreshScript = /* js */ `
+const refreshScript = /* js */ `\n(function(){try{var v=localStorage.getItem("caula-theme");if(v==="light"||v==="dark")document.documentElement.dataset.theme=v;}catch(e){}})();\ndocument.addEventListener("click",function(e){if(e.target && e.target.id==="theme-toggle"){var v=document.documentElement.dataset.theme==="light"?"dark":"light";document.documentElement.dataset.theme=v;try{localStorage.setItem("caula-theme",v)}catch(e){}}});
 document.addEventListener("submit", function (e) {
   var msg = e.target.getAttribute && e.target.getAttribute("data-confirm");
   if (msg && !window.confirm(msg)) e.preventDefault();
@@ -142,7 +142,7 @@ setInterval(function () {
 }, 10000);
 `;
 
-const FAVICON = "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#242a31"/><path d="M7 9h18l-9 15z" fill="#58a6ff"/></svg>`);
+const FAVICON = "/brand/caula-collar.svg";
 
 export interface NavContext {
   active: "overview" | "activity" | "approvals" | "keys";
@@ -164,7 +164,7 @@ export function layout(title: string, nav: NavContext, body: string, nonce: stri
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0B0D10"><link rel="icon" href="${FAVICON}"><title>${escapeHtml(title)} · Caula</title><style nonce="${nonce}">${css}</style></head>
 <body>
 <header class="topbar"><div class="topbar-inner">
-<a class="brand" href="/" aria-label="Caula home"><span class="brand-mark">C</span><span class="brand-text">Caula</span></a>
+<a class="brand" href="/" aria-label="Caula home"><span class="brand-mark"><img src="/brand/caula-collar.svg" width="36" height="27" alt="" aria-hidden="true"></span><span class="brand-text">Caula</span></a>
 <nav class="nav" aria-label="Primary navigation">${tabs.map((t)=>`<a href="${t.href}" aria-label="${t.label}"${t.id===nav.active?' class="active" aria-current="page"':''}><span class="nav-icon" aria-hidden="true">${icons[t.id]}</span><span class="nav-label">${t.label}</span>${t.id==="approvals"&&nav.pendingApprovals?`<span class="nav-count" aria-label="${nav.pendingApprovals} pending">${nav.pendingApprovals}</span>`:""}</a>`).join("")}</nav>
 <span class="net"><span class="net-dot"></span>${escapeHtml(nav.network)}</span>
 </div></header>
