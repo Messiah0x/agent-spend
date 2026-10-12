@@ -24,9 +24,9 @@ async function main() {
     accessKey: agent,
     limits: [{ token: PATH_USD_ADDRESS, limit: 2n * usd, period: 30 * 86400 }],
   });
-  console.log("Authorized 2 pathUSD:", auth.receipt.transactionHash);
+  console.log("Authorized 2 pathUSD:", auth.receipt.transactionHash, "block:", auth.receipt.blockNumber.toString());
   const paid = await agentClient.token.transferSync({ token: PATH_USD_ADDRESS, to: recipient, amount: usd });
-  console.log("Allowed 1 pathUSD:", paid.receipt.transactionHash);
+  console.log("Allowed 1 pathUSD:", paid.receipt.transactionHash, "block:", paid.receipt.blockNumber.toString());
   const before = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
   if (before.remaining <= 0n || before.remaining > usd) throw new Error("Unexpected remaining budget: " + before.remaining);
   console.log("Remaining after allowed payment (includes any fee charges):", before.remaining.toString());
