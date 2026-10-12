@@ -161,10 +161,10 @@ export function layout(title: string, nav: NavContext, body: string, nonce: stri
   ];
   return `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#242a31"><link rel="icon" href="${FAVICON}"><title>${escapeHtml(title)} · Agent Spend</title><style nonce="${nonce}">${css}</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0B0D10"><link rel="icon" href="${FAVICON}"><title>${escapeHtml(title)} · Caula</title><style nonce="${nonce}">${css}</style></head>
 <body>
 <header class="topbar"><div class="topbar-inner">
-<a class="brand" href="/" aria-label="Agent Spend home"><span class="brand-mark">A</span><span class="brand-text">Agent Spend</span></a>
+<a class="brand" href="/" aria-label="Caula home"><span class="brand-mark">C</span><span class="brand-text">Caula</span></a>
 <nav class="nav" aria-label="Primary navigation">${tabs.map((t)=>`<a href="${t.href}" aria-label="${t.label}"${t.id===nav.active?' class="active" aria-current="page"':''}><span class="nav-icon" aria-hidden="true">${icons[t.id]}</span><span class="nav-label">${t.label}</span>${t.id==="approvals"&&nav.pendingApprovals?`<span class="nav-count" aria-label="${nav.pendingApprovals} pending">${nav.pendingApprovals}</span>`:""}</a>`).join("")}</nav>
 <span class="net"><span class="net-dot"></span>${escapeHtml(nav.network)}</span>
 </div></header>
