@@ -92,16 +92,7 @@ async function main() {
     db.raw.close();
   }
 
-  console.log("Caula ChainWriter raised limit to 5 pathUSD:", increaseHash);
   const raised = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
-  if (raised.remaining < 2n * usd) throw new Error("Budget increase not reflected on-chain: " + raised.remaining);
-  const retry = await agentClient.token.transferSync({ token: PATH_USD_ADDRESS, to: recipient, amount: 2n * usd });
-  console.log("Agent retry succeeded (2 pathUSD):", retry.receipt.transactionHash, "block:", retry.receipt.blockNumber.toString());
-  const finalBudget = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
-  if (finalBudget.remaining >= raised.remaining) throw new Error("Retry did not consume allowance");
-  console.log("PASS: Moderato rejected over-budget payment, owner increased limit, agent retry succeeded; remaining:", finalBudget.remaining.toString());
-}
-main().catch(err => { console.error("FAIL:", err instanceof Error ? err.message : err); process.exitCode = 1; });  const raised = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
   if (raised.remaining < 2n * usd) throw new Error("Budget increase not reflected on-chain: " + raised.remaining);
   const retry = await agentClient.token.transferSync({ token: PATH_USD_ADDRESS, to: recipient, amount: 2n * usd });
   console.log("Agent retry succeeded (2 pathUSD):", retry.receipt.transactionHash, "block:", retry.receipt.blockNumber.toString());
