@@ -11,6 +11,9 @@ export function escapeHtml(s: string): string {
 }
 
 const css = /* css */ `
+.mobile-brand{display:none}
+@media(max-width:720px){.mobile-brand{display:inline-flex;align-items:center;gap:9px;position:absolute;left:14px;top:13px;z-index:10;text-decoration:none;color:var(--text);font-size:12px;font-weight:800;letter-spacing:.18em}.mobile-brand img{display:block;width:35px;height:30px;object-fit:contain;background:#fff;border-radius:7px;padding:2px}.page::before{content:""!important;display:block!important;height:20px;margin-bottom:14px!important}}
+\n.theme-toggle{position:fixed;right:20px;top:18px;z-index:50;display:grid;place-items:center;width:38px;height:38px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text);cursor:pointer;font-size:20px}\n.brand-mark{background:#fff!important;box-shadow:none!important;overflow:hidden}.brand-mark img{display:block;object-fit:contain;width:100%;height:100%}\n:root[data-theme="light"]{color-scheme:light;--bg:#F7F7F5;--surface:#fff;--surface-2:#F1F2F4;--surface-hover:#EDEEF1;--border:#E5E7EB;--border-strong:#CED2D9;--text:#0B0D10;--text-secondary:#424A56;--text-muted:#667085;--accent:#5B5CF6;--accent-soft:rgba(91,92,246,.09);--neutral-bg:#EFF0F2;--good:#14804A;--good-bg:#E8F6EF;--warn:#A66400;--warn-bg:#FFF3DC;--critical:#BD3632;--critical-bg:#FDECEB}\n:root[data-theme="light"] body{background:var(--bg)!important;color:var(--text)}\n:root[data-theme="light"] .topbar{background:#fff!important;border-color:var(--border)}\n:root[data-theme="light"] .card,:root[data-theme="light"] .stat,:root[data-theme="light"] .guide-step,:root[data-theme="light"] .guide-map,:root[data-theme="light"] .table-wrap{background:#fff!important;border-color:var(--border)!important;color:var(--text);box-shadow:0 4px 24px rgba(20,25,35,.035)}\n:root[data-theme="light"] .page-title,:root[data-theme="light"] .stat-value,:root[data-theme="light"] .card-title,:root[data-theme="light"] .guide-map-grid strong{color:var(--text)}\n:root[data-theme="light"] .nav a{color:#667085}:root[data-theme="light"] .nav a.active{color:#3738A7!important;background:#F0F0FF!important}\n@media(max-width:720px){.theme-toggle{top:12px;right:12px}}\n
 :root {
   color-scheme: dark;
   --bg: #242a31;
@@ -127,7 +130,7 @@ input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible { 
 }
 `;
 
-const refreshScript = /* js */ `
+const refreshScript = /* js */ `\n(function(){try{var v=localStorage.getItem("caula-theme");if(v==="light"||v==="dark")document.documentElement.dataset.theme=v;}catch(e){}})();\ndocument.addEventListener("click",function(e){if(e.target && e.target.id==="theme-toggle"){var v=document.documentElement.dataset.theme==="light"?"dark":"light";document.documentElement.dataset.theme=v;try{localStorage.setItem("caula-theme",v)}catch(e){}}});
 document.addEventListener("submit", function (e) {
   var msg = e.target.getAttribute && e.target.getAttribute("data-confirm");
   if (msg && !window.confirm(msg)) e.preventDefault();
@@ -142,7 +145,7 @@ setInterval(function () {
 }, 10000);
 `;
 
-const FAVICON = "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#242a31"/><path d="M7 9h18l-9 15z" fill="#58a6ff"/></svg>`);
+const FAVICON = "data:image/svg+xml," + encodeURIComponent("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 782 575\" role=\"img\" aria-label=\"Caula collar logo\"><g fill=\"#0B0D10\"><path d=\"M768 214 L757 210 L731 212 L575 261 L555 271 L540 288 L532 314 L532 351 L571 340 L571 327 L578 312 L590 301 L635 286 L645 287 L659 297 L664 308 L662 477 L655 489 L636 503 L589 521 L532 537 L535 556 L549 571 L558 574 L579 573 L669 533 L690 511 L698 493 L701 470 L744 445 L766 421 L779 388 L781 323 L780 237 L776 223 Z\"/><path d=\"M11 161 L0 198 L1 351 L16 391 L31 412 L56 437 L95 465 L135 486 L209 512 L309 530 L352 533 L429 532 L528 518 L601 494 L610 484 L615 471 L615 365 L612 358 L605 353 L596 352 L555 365 L500 377 L408 386 L323 383 L233 368 L163 345 L132 330 L100 309 L77 287 L61 257 L71 237 L108 201 L169 167 L245 142 L337 127 L426 125 L521 135 L572 147 L613 162 L656 184 L676 186 L697 174 L722 148 L731 131 L732 110 L720 88 L688 62 L655 45 L597 25 L534 10 L485 3 L441 0 L355 1 L286 10 L228 23 L172 41 L129 59 L89 82 L56 108 L33 131 Z\"/></g></svg>");
 
 export interface NavContext {
   active: "overview" | "activity" | "approvals" | "keys";
@@ -161,10 +164,11 @@ export function layout(title: string, nav: NavContext, body: string, nonce: stri
   ];
   return `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#242a31"><link rel="icon" href="${FAVICON}"><title>${escapeHtml(title)} · Agent Spend</title><style nonce="${nonce}">${css}</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0B0D10"><link rel="icon" href="${FAVICON}"><title>${escapeHtml(title)} · Caula</title><style nonce="${nonce}">${css}</style></head>
 <body>
+<a class="mobile-brand" href="/" aria-label="Caula home"><img src="${FAVICON}" alt="" width="35" height="30"><span>CAULA</span></a>
 <header class="topbar"><div class="topbar-inner">
-<a class="brand" href="/" aria-label="Agent Spend home"><span class="brand-mark">A</span><span class="brand-text">Agent Spend</span></a>
+<a class="brand" href="/" aria-label="Caula home"><span class="brand-mark"><img src="${FAVICON}" width="36" height="27" alt="" aria-hidden="true"></span><span class="brand-text">Caula</span></a>
 <nav class="nav" aria-label="Primary navigation">${tabs.map((t)=>`<a href="${t.href}" aria-label="${t.label}"${t.id===nav.active?' class="active" aria-current="page"':''}><span class="nav-icon" aria-hidden="true">${icons[t.id]}</span><span class="nav-label">${t.label}</span>${t.id==="approvals"&&nav.pendingApprovals?`<span class="nav-count" aria-label="${nav.pendingApprovals} pending">${nav.pendingApprovals}</span>`:""}</a>`).join("")}</nav>
 <span class="net"><span class="net-dot"></span>${escapeHtml(nav.network)}</span>
 </div></header>

@@ -174,8 +174,9 @@ export function createIndexer(config: Config, db: Db) {
     const cursor = db.getCursor();
     const storedHash = db.getCursorHash();
     if (cursor === null || storedHash === null) return false;
-    const block = await client.getBlock({ blockNumber: cursor }).catch(() => null);
-    if (block && block.hash?.toLowerCase() === storedHash.toLowerCase()) return false;
+    // An RPC outage is not evidence of a reorg. Never rewind on transport failure.
+    const block = await client.getBlock({ blockNumber: cursor });
+    if (block.hash?.toLowerCase() === storedHash.toLowerCase()) return false;
     const rewindTo = cursor > REORG_REWIND ? cursor - REORG_REWIND : 0n;
     const floor = config.startBlock > 0n ? config.startBlock - 1n : 0n;
     const target = rewindTo < floor ? floor : rewindTo;
@@ -219,17 +220,24 @@ export function createIndexer(config: Config, db: Db) {
   let stopped = false;
   let lastError: string | null = null;
   let lastSuccess: number | null = null;
+  let consecutiveFailures = 0;
   async function start() {
     while (!stopped) {
       try {
         await runOnce();
         lastError = null;
         lastSuccess = Date.now();
+        consecutiveFailures = 0;
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
-        console.error("[indexer] poll failed:", lastError);
+        consecutiveFailures++;
+        if (consecutiveFailures === 1 || consecutiveFailures % 10 === 0) {
+          console.error(`[indexer] poll failed (${consecutiveFailures} consecutive):`, lastError);
+        }
       }
-      await new Promise((r) => setTimeout(r, config.pollIntervalMs));
+      // Exponential backoff during RPC outages; avoid flooding an unhealthy provider.
+      const delay = consecutiveFailures === 0 ? config.pollIntervalMs : Math.min(60_000, Math.max(1_000, config.pollIntervalMs) * 2 ** Math.min(consecutiveFailures - 1, 6));
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
 

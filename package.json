@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "mcp": "tsx src/mcp.ts",
     "new-agent-key": "tsx scripts/new-agent-key.ts",
-    "demo:stack": "tsx scripts/demo-stack.ts"
+    "demo:stack": "tsx scripts/demo-stack.ts",
+    "db:backup": "tsx scripts/backup-db.ts"
   },
   "repository": {
     "type": "git",
