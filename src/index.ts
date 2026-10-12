@@ -50,6 +50,7 @@ async function polishedFetch(request: Request): Promise<Response> {
   const type = response.headers.get("content-type") ?? "";
   if (!type.includes("text/html")) return response;
   let html = await response.text();
+  html = html.replace("<body>", '<body><button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle light or dark appearance">◐</button>');
   html = html.replace("</head>", '<link rel="stylesheet" href="/mobile-polish.css"></head>');
   html = html.replace(
     '<div class="empty-title">No agent keys yet</div>Access keys authorized by the watched accounts will appear here automatically.',
