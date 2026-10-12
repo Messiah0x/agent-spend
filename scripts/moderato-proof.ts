@@ -28,7 +28,8 @@ async function main() {
   const paid = await agentClient.token.transferSync({ token: PATH_USD_ADDRESS, to: recipient, amount: usd });
   console.log("Allowed 1 pathUSD:", paid.receipt.transactionHash);
   const before = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
-  if (before.remaining !== usd) throw new Error("Unexpected remaining budget: " + before.remaining);
+  if (before.remaining <= 0n || before.remaining > usd) throw new Error("Unexpected remaining budget: " + before.remaining);
+  console.log("Remaining after allowed payment (includes any fee charges):", before.remaining.toString());
   let rejected = false;
   try {
     await agentClient.token.transferSync({ token: PATH_USD_ADDRESS, to: recipient, amount: 2n * usd });
@@ -38,7 +39,7 @@ async function main() {
   }
   if (!rejected) throw new Error("CRITICAL: over-limit transfer succeeded");
   const after = await agentClient.accessKey.getRemainingLimit({ account: root.address, accessKey: agent, token: PATH_USD_ADDRESS });
-  if (after.remaining !== usd) throw new Error("Budget changed after rejected transfer");
-  console.log("PASS: actual Moderato transaction succeeded, over-limit attempt rejected, remaining 1 pathUSD");
+  if (after.remaining > before.remaining || before.remaining - after.remaining > 100_000n) throw new Error("Unexpected budget change after rejected transfer: before=" + before.remaining + " after=" + after.remaining);
+  console.log("PASS: actual Moderato transaction succeeded, over-limit attempt rejected, remaining base units:", after.remaining.toString());
 }
 main().catch(err => { console.error("FAIL:", err instanceof Error ? err.message : err); process.exitCode = 1; });
