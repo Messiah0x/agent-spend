@@ -37,6 +37,7 @@ jobs:
         env:
           PORT: 3000
           DB_PATH: /tmp/agent-spend-smoke.db
+          WATCHED_ACCOUNTS: '0x0000000000000000000000000000000000000001'
         run: |
           npm start > /tmp/agent-spend.log 2>&1 &
           echo $! > /tmp/agent-spend.pid
